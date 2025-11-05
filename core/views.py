@@ -361,41 +361,59 @@ class EstimateView(APIView):
     
     def _get_quartier_from_coords(self, coords: List[float]) -> Dict:
         """
-        Helper : Extrait quartier/ville/arrondissement depuis coords via Nominatim reverse-geocoding.
+        Helper : Extrait la PLUS PETITE unité administrative depuis coords via Nominatim.
         
-        Utilisé pour filtrage grossier des candidats BD avant vérification isochrones.
+        On récupère toutes les unités disponibles (commune/quartier/suburb/neighbourhood)
+        pour maximiser les chances de filtrage grossier efficace avant isochrones.
         
         Args:
             coords : [lat, lon]
             
         Returns:
             Dict : {
-                'quartier': str ou None,
+                'commune': str ou None,  # Plus petite unité (suburb, neighbourhood, village)
+                'quartier': str ou None,  # Alias commune (compatibilité)
                 'ville': str ou None,
-                'arrondissement': str ou None,
+                'arrondissement': str ou None,  # Municipality/county/city_district
                 'departement': str ou None
             }
             
         Exemples :
             >>> info = self._get_quartier_from_coords([3.8547, 11.5021])
             >>> print(info)
-            {'quartier': 'Ngoa-Ekelle', 'ville': 'Yaoundé', 'arrondissement': 'Yaoundé II', 'departement': 'Mfoundi'}
+            {'commune': 'Ngoa-Ekelle', 'quartier': 'Ngoa-Ekelle', 'ville': 'Yaoundé', 
+             'arrondissement': 'Yaoundé II', 'departement': 'Mfoundi'}
         """
         try:
-            result = nominatim_client.reverse_geocode(lat=coords[0], lon=coords[1])
+            result = nominatim_client.reverse_geocode(lat=coords[0], lon=coords[1], zoom=18)
             if not result:
-                return {'quartier': None, 'ville': None, 'arrondissement': None, 'departement': None}
+                return {'commune': None, 'quartier': None, 'ville': None, 'arrondissement': None, 'departement': None}
             
             address = result.get('address', {})
+            
+            # Récupérer la PLUS PETITE unité disponible (ordre priorité)
+            commune = (
+                address.get('suburb') or 
+                address.get('neighbourhood') or 
+                address.get('hamlet') or 
+                address.get('village') or
+                address.get('quarter')  # Vérifier si Nominatim utilise "quarter" pour Cameroun
+            )
+            
             return {
-                'quartier': address.get('suburb') or address.get('neighbourhood'),
+                'commune': commune,
+                'quartier': commune,  # Alias pour compatibilité code existant
                 'ville': address.get('city') or address.get('town') or address.get('village'),
-                'arrondissement': address.get('municipality') or address.get('county'),
+                'arrondissement': (
+                    address.get('municipality') or 
+                    address.get('county') or 
+                    address.get('city_district')
+                ),
                 'departement': address.get('state_district') or address.get('state')
             }
         except Exception as e:
             logger.warning(f"_get_quartier_from_coords échec pour {coords}: {e}")
-            return {'quartier': None, 'ville': None, 'arrondissement': None, 'departement': None}
+            return {'commune': None, 'quartier': None, 'ville': None, 'arrondissement': None, 'departement': None}
     
     def check_similar_match(
         self,
@@ -408,13 +426,39 @@ class EstimateView(APIView):
         congestion_user: Optional[int]
     ) -> Optional[Dict]:
         """
-        Recherche trajets similaires avec périmètres progressifs (2min→5min ou 50m→150m fallback).
+        Recherche trajets similaires avec hiérarchie correcte : périmètres (étroit→élargi) × variables (exactes→différentes).
         
-        **LOGIQUE CENTRALE DU PROJET** : 
-        Il n'y a PAS de distinction "exact vs similaire" - c'est un système de similarité avec 
-        2 niveaux de périmètres + fallback sur variables (heure/météo différentes si pas de match).
+        **LOGIQUE CENTRALE CORRIGÉE** : 
+        Système de recherche avec 2 DIMENSIONS :
+        - **DIMENSION 1** : Périmètres géographiques (ÉTROIT 2min/50m → ÉLARGI 5min/150m)
+        - **DIMENSION 2** : Variables contextuelles (EXACTES heure/météo → DIFFÉRENTES)
         
-        Workflow hiérarchique :
+        **HIÉRARCHIE VRAIE** (du plus précis au moins précis) :
+        
+        1. ✅ **PÉRIMÈTRE ÉTROIT + Variables EXACTES** (inclut matchs EXACTS si coords identiques)
+           → Si trouvé : Prix DIRECT sans ajustement distance (fiabilité 0.95)
+           
+        2. ✅ **PÉRIMÈTRE ÉTROIT + Variables DIFFÉRENTES** (heure/météo différentes)
+           → Si trouvé : Prix avec ajustement heure/météo + NOTE dans réponse (fiabilité 0.85)
+           → Ex : "Polytech-Kennedy nuit sans pluie" trouve "Polytech-Kennedy jour avec pluie"
+           → Note : "Prix basé sur trajets de jour (+50 CFA vs nuit), avec pluie (-5%)"
+           
+        3. ✅ **PÉRIMÈTRE ÉLARGI + Variables EXACTES**
+           → Si trouvé : Prix avec ajustement DISTANCE uniquement (fiabilité 0.75)
+           → Ajustement distance bidirectionnel : +50 CFA/km si plus long, -50 CFA/km si plus court
+           
+        4. ✅ **PÉRIMÈTRE ÉLARGI + Variables DIFFÉRENTES**
+           → Si trouvé : Prix avec ajustements DISTANCE + heure/météo (fiabilité 0.65)
+           
+        5. ❌ **AUCUN MATCH** → Return None → Passage fallback_inconnu (modèle ML)
+        
+        **IMPORTANT** : 
+        - **Ajustement CONGESTION** : N'est PAS fait ici ! Se fait À LA FIN de toute prédiction
+          (voir _process_estimate après retour de cette fonction)
+        - **Ajustement DISTANCE** : Seul ajustement calculé ici, bidirectionnel (+ ou -)
+        - **Ajustement heure/météo** : Seulement si variables différentes trouvées
+        
+        Workflow détaillé :
             
             1. FILTRAGE GROSSIER (Optimisation queries BD)
                - Extraire quartiers/arrondissement depuis depart_coords et arrivee_coords via Nominatim
@@ -424,68 +468,49 @@ class EstimateView(APIView):
                  )
                - Cela réduit candidats de 1000+ à ~20-50 trajets à vérifier
             
-            2. NIVEAU 1 : PÉRIMÈTRE ÉTROIT (isochrone 2min / cercle 50m fallback)
-               a) Générer isochrones Mapbox 2 minutes autour de chaque point_depart candidat :
-                  isochrone_depart = mapbox_client.get_isochrone(
-                      coords=(pt_depart.coords_latitude, pt_depart.coords_longitude),
-                      contours_minutes=[2],
-                      profile='driving-traffic'
-                  )
-               b) Vérifier si depart_coords est DANS le polygone isochrone via Shapely :
-                  from shapely.geometry import shape, Point as ShapelyPoint
-                  polygon_depart = shape(isochrone_depart['features'][0]['geometry'])
-                  if polygon_depart.contains(ShapelyPoint(depart_coords[1], depart_coords[0])):
-                      # Match périmètre étroit départ ✓
-               c) Répéter pour arrivee_coords vs. isochrones point_arrivee candidats
-               d) Si isochrone Mapbox échoue (NoRoute Cameroun, routes manquantes) :
-                  **FALLBACK cercle Haversine 50m** :
-                  if haversine_distance(depart_coords, pt_depart.coords) <= 50:
-                      # Match périmètre étroit départ ✓
-               e) Si match DÉPART + ARRIVÉE dans périmètre étroit :
-                  - Vérifier distance routière ±10% via Mapbox Matrix ou distance stockée
-                  - Vérifier heure/météo EXACTES (même valeurs que demandées)
-                  - Si OK : **MATCH ÉTROIT** → Prix direct SANS ajustement (fiabilité 0.9-0.95)
-                  - Calculer moyenne/min/max des prix trajets matchés
-                  - Retourner immédiatement avec statut='similaire_etroit'
+            2. NIVEAU 1A : PÉRIMÈTRE ÉTROIT + Variables EXACTES
+               a) Générer isochrones Mapbox 2 minutes (ou fallback cercles 50m si Mapbox échoue)
+               b) Filtrer trajets BD par heure EXACTE et meteo EXACTE
+               c) Vérifier containment isochrone/cercle pour départ ET arrivée
+               d) Vérifier distance routière ±10%
+               e) Si match : **Prix DIRECT**, fiabilité 0.95, statut='exact'
+                  (Cas inclut matchs EXACTS si coords identiques)
             
-            3. NIVEAU 2 : PÉRIMÈTRE ÉLARGI (isochrone 5min / cercle 150m fallback)
-               - Si pas de match étroit, recommencer avec isochrones 5 minutes (ou cercles 150m)
-               - Mêmes vérifications Shapely/Haversine
-               - Si match DÉPART + ARRIVÉE dans périmètre élargi :
-                 a) Calculer distances réelles via Mapbox Matrix API :
-                    matrix_depart = mapbox_client.get_matrix(
-                        coordinates=[(lat, lon) for depart_coords + trajets_candidats_departs],
-                        sources=[0],  # Nouveau départ
-                        destinations=[1, 2, ...]  # Départs BD
-                    )
-                    distance_extra_depart = matrix_depart['distances'][0][i]
-                 b) Calculer ajustements prix :
-                    - **Distance extra** : +settings.ADJUSTMENT_PRIX_PAR_KM * (dist_extra_km)
-                      Ex : +50 CFA par km extra (si 200m extra → +10 CFA)
-                    - **Congestion différente** : Si congestion_user fourni et > congestion_bd_moyen + 20 
-                      → +10% (settings.ADJUSTMENT_CONGESTION_POURCENT)
-                    - **Sinuosité** : Si trajet BD sinuosite_indice > 1.5 (routes tortueuses) 
-                      → +20 CFA (settings.ADJUSTMENT_SINUOSITE_CFA)
-                    - **Météo diff** : Si meteo demandée != meteo_bd → ±10% selon type
-                      (soleil→pluie : +10%, pluie→soleil : -5%)
-                    - **Heure diff** : Si heure demandée != heure_bd → ±50 CFA selon type
-                      (jour→nuit : +50 CFA, nuit→jour : -30 CFA)
-                 c) Calculer prix ajusté :
-                    prix_base = moyenne(trajets_matchés.prix)
-                    prix_ajusté = prix_base + ajust_distance + ajust_sinuosite + ajust_meteo + ajust_heure
-                    prix_ajusté *= (1 + ajust_congestion_pourcent/100)
-                 d) **MATCH ÉLARGI** → Retourner avec statut='similaire_elargi', fiabilité 0.7-0.8
+            3. NIVEAU 1B : PÉRIMÈTRE ÉTROIT + Variables DIFFÉRENTES
+               a) Reprendre isochrones 2 minutes / cercles 50m du niveau 1A
+               b) **IGNORER filtres heure/météo** (accepter toutes valeurs)
+               c) Vérifier containment + distance ±10%
+               d) Si match : Calculer ajustements heure/météo :
+                  - Heure différente : +50 CFA si jour→nuit, -30 CFA si nuit→jour
+                    (settings.ADJUSTMENT_HEURE_JOUR_NUIT_CFA)
+                  - Météo différente : +10% si soleil→pluie, -5% si pluie→soleil
+                    (settings.ADJUSTMENT_METEO_SOLEIL_PLUIE_POURCENT)
+               e) **Ajouter NOTE dans réponse** : 
+                  "Prix basé sur trajets à heure différente (jour vs nuit demandée, +50 CFA)"
+               f) Retourner statut='similaire_variables_diff_etroit', fiabilité 0.85
             
-            4. NIVEAU 3 : FALLBACK VARIABLES (si pas de match avec heure/météo exactes)
-               - Recommencer recherche périmètres (étroit puis élargi) MAIS :
-                 * Ignorer filtre heure (accepter toutes heures)
-                 * Ignorer filtre météo (accepter toutes météos)
-               - Si match trouvé :
-                 * Appliquer ajustements standards heure/météo (voir ci-dessus)
-                 * **Ajouter note dans réponse** : "Prix basé sur trajets à heure différente (nuit vs matin)"
-                 * Retourner avec statut='similaire_variables_diff', fiabilité 0.6-0.7
+            4. NIVEAU 2A : PÉRIMÈTRE ÉLARGI + Variables EXACTES
+               a) Générer isochrones Mapbox 5 minutes (ou fallback cercles 150m)
+               b) Filtrer par heure EXACTE et meteo EXACTE
+               c) Vérifier containment + distance ±20% (tolérance plus large)
+               d) Si match : Calculer ajustement DISTANCE via Matrix API :
+                  - Calculer distance extra réelle : matrix_depart + matrix_arrivee
+                  - **Ajustement bidirectionnel** :
+                    * Si distance_extra > 0 : +settings.ADJUSTMENT_PRIX_PAR_100M par 100m
+                    * Si distance_extra < 0 : -settings.ADJUSTMENT_PRIX_PAR_100M par 100m
+                  - Ex : Trajet demandé 5.2km, BD 5.4km → -200m → -10 CFA (réduit prix)
+                  - Ex : Trajet demandé 5.6km, BD 5.4km → +200m → +10 CFA (augmente prix)
+               e) Retourner statut='similaire_elargi', fiabilité 0.75
             
-            5. AUCUN MATCH → Return None (passage à fallback_inconnu)
+            5. NIVEAU 2B : PÉRIMÈTRE ÉLARGI + Variables DIFFÉRENTES
+               a) Reprendre isochrones 5 minutes / cercles 150m
+               b) **IGNORER filtres heure/météo**
+               c) Vérifier containment + distance ±20%
+               d) Si match : Ajustements DISTANCE + heure/météo (cumulés)
+               e) **NOTE dans réponse** avec détails variables différentes
+               f) Retourner statut='similaire_elargi_variables_diff', fiabilité 0.65
+            
+            6. AUCUN MATCH → Return None (passage à fallback_inconnu)
         
         Args:
             depart_coords, arrivee_coords : [lat, lon] nouveau trajet
@@ -520,54 +545,66 @@ class EstimateView(APIView):
             None si aucun trajet similaire trouvé (passage à fallback_inconnu)
             
         Exemples :
-            # Match étroit (2min/50m) avec heure/météo exactes
-            >>> result = self.check_similar_match([3.8547, 11.5021], [3.8667, 11.5174], 5200, 'matin', 1, 0, None)
+            # Exemple 1 : Match EXACT (périmètre étroit + variables exactes)
+            >>> # Polytech→Kennedy matin sans pluie TROUVE Polytech→Kennedy matin sans pluie (coords identiques)
+            >>> result = self.check_similar_match([3.8547, 11.5021], [3.8667, 11.5174], 5200, 'matin', 0, 0, None)
             >>> print(result)
             {
-                'statut': 'similaire_etroit',
+                'statut': 'exact',
                 'prix_moyen': 250.0,
                 'prix_min': 200.0,
                 'prix_max': 300.0,
-                'fiabilite': 0.93,
-                'message': 'Estimation basée sur 8 trajets très similaires (périmètre 2min).',
-                'ajustements_appliques': {'distance_extra_metres': 0, 'facteur_ajustement_total': 1.0}
+                'fiabilite': 0.95,
+                'message': 'Estimation basée sur 8 trajets exacts (périmètre 2min, heure/météo identiques).',
+                'ajustements_appliques': {'distance_extra_metres': 0, 'ajustement_distance_cfa': 0.0}
             }
             
-            # Match élargi (5min/150m) avec ajustements
-            >>> result = self.check_similar_match([3.8550, 11.5025], [3.8670, 11.5180], 5400, 'matin', 1, 0, 7)
+            # Exemple 2 : Périmètre étroit + variables DIFFÉRENTES
+            >>> # Polytech→Kennedy matin soleil TROUVE Polytech→Kennedy jour pluie
+            >>> result = self.check_similar_match([3.8547, 11.5021], [3.8667, 11.5174], 5200, 'matin', 0, 0, None)
             >>> print(result)
             {
-                'statut': 'similaire_elargi',
-                'prix_moyen': 270.0,
-                'prix_min': 250.0,
-                'prix_max': 290.0,
-                'fiabilite': 0.78,
-                'message': 'Estimation ajustée depuis 5 trajets similaires (+20 CFA pour 200m extra, +10% congestion).',
+                'statut': 'similaire_variables_diff_etroit',
+                'prix_moyen': 245.0,  # 250 - 5% météo
+                'fiabilite': 0.85,
+                'message': 'Estimation depuis 5 trajets proches à heure/météo différentes.',
                 'ajustements_appliques': {
-                    'distance_extra_metres': 200,
-                    'ajustement_distance_cfa': 20.0,
-                    'ajustement_congestion_pourcent': 10,
-                    'facteur_ajustement_total': 1.10
+                    'ajustement_meteo_pourcent': -5,  # BD pluie, demandé soleil → -5%
+                    'note_variables': 'Prix basé sur trajets avec pluie (−5% vs soleil demandé)'
                 }
             }
             
-            # Match avec variables différentes (heure nuit au lieu de matin)
-            >>> result = self.check_similar_match([3.8547, 11.5021], [3.8667, 11.5174], 5200, 'matin', 1, 0, None)
+            # Exemple 3 : Périmètre élargi + variables exactes (ajustement distance)
+            >>> # Point 200m de Polytech → Point 150m de Kennedy (5.4km vs 5.2km BD)
+            >>> result = self.check_similar_match([3.8550, 11.5025], [3.8670, 11.5180], 5400, 'matin', 0, 0, None)
             >>> print(result)
             {
-                'statut': 'similaire_variables_diff',
-                'prix_moyen': 300.0,
-                'fiabilite': 0.68,
-                'message': 'Estimation basée sur trajets similaires à heure différente.',
+                'statut': 'similaire_elargi',
+                'prix_moyen': 260.0,  # 250 + 10 CFA (200m extra)
+                'fiabilite': 0.75,
+                'message': 'Estimation ajustée depuis 5 trajets similaires (+10 CFA pour 200m extra).',
                 'ajustements_appliques': {
-                    'ajustement_heure_cfa': 50.0,
-                    'note_variables': 'Prix basé sur trajets de nuit (+50 CFA vs matin demandé)'
+                    'distance_extra_metres': 200,
+                    'ajustement_distance_cfa': 10.0  # +50 CFA/km * 0.2km
+                }
+            }
+            
+            # Exemple 4 : Périmètre élargi + distance PLUS COURTE (réduit prix)
+            >>> # Trajet demandé 5.0km, BD 5.4km → -400m → -20 CFA
+            >>> result = self.check_similar_match([3.8545, 11.5020], [3.8665, 11.5170], 5000, 'matin', 0, 0, None)
+            >>> print(result)
+            {
+                'statut': 'similaire_elargi',
+                'prix_moyen': 230.0,  # 250 - 20 CFA (400m de moins)
+                'ajustements_appliques': {
+                    'distance_extra_metres': -400,  # Négatif = distance plus courte
+                    'ajustement_distance_cfa': -20.0  # Réduit le prix
                 }
             }
             
         Gestion edge cases :
             - Si isochrones Mapbox échouent (NoRoute, routes manquantes Cameroun) :
-              **TOUJOURS fallback cercles Haversine** (50m/150m)
+              **TOUJOURS fallback cercles Haversine** (settings.CIRCLE_RADIUS_ETROIT_M / ELARGI_M)
             - Si quartiers extraction échoue (Nominatim timeout) :
               Filtrer par ville ou skip filtrage (query full BD, plus lent mais exhaustif)
             - Si <2 trajets après filtrage :
@@ -575,28 +612,346 @@ class EstimateView(APIView):
             - Si Matrix API échoue (trop de candidats >25) :
               Batch en groupes de 25 ou fallback Haversine pour distances
               
-        Constants settings utilisées :
-            - settings.ISOCHRONE_MINUTES_ETROIT = 2
-            - settings.ISOCHRONE_MINUTES_ELARGI = 5
-            - settings.CIRCLE_RADIUS_ETROIT_M = 50
-            - settings.CIRCLE_RADIUS_ELARGI_M = 150
-            - settings.ADJUSTMENT_PRIX_PAR_KM = 50.0  # CFA par km extra
-            - settings.ADJUSTMENT_CONGESTION_POURCENT = 10  # % par tranche 20 pts congestion
-            - settings.ADJUSTMENT_SINUOSITE_CFA = 20.0  # CFA si sinuosité >1.5
-            - settings.ADJUSTMENT_METEO_SOLEIL_PLUIE_POURCENT = 10  # +10% si pluie
-            - settings.ADJUSTMENT_HEURE_JOUR_NUIT_CFA = 50  # +50 CFA si nuit
-            - settings.SIMILARITY_DISTANCE_TOLERANCE_POURCENT = 10  # ±10% distance routière
+        Constants settings utilisées (toutes configurables via .env) :
+            - settings.ISOCHRONE_MINUTES_ETROIT = 2  # Minutes isochrone périmètre étroit
+            - settings.ISOCHRONE_MINUTES_ELARGI = 5  # Minutes isochrone périmètre élargi
+            - settings.CIRCLE_RADIUS_ETROIT_M = 50  # Rayon cercle fallback étroit (mètres)
+            - settings.CIRCLE_RADIUS_ELARGI_M = 150  # Rayon cercle fallback élargi (mètres)
+            - settings.ADJUSTMENT_PRIX_PAR_100M = 5.0  # CFA par 100m extra (bidirectionnel !)
+            - settings.ADJUSTMENT_METEO_SOLEIL_PLUIE_POURCENT = 10  # +10% si pluie, -5% inverse
+            - settings.ADJUSTMENT_HEURE_JOUR_NUIT_CFA = 50  # +50 CFA si nuit, -30 inverse
+            - settings.ADJUSTMENT_CONGESTION_POURCENT = 10  # +10% par tranche 20 pts (appliqué POST-fonction)
+            - settings.SIMILARITY_DISTANCE_TOLERANCE_ETROIT_POURCENT = 10  # ±10% périmètre étroit
+            - settings.SIMILARITY_DISTANCE_TOLERANCE_ELARGI_POURCENT = 20  # ±20% périmètre élargi
+            
+        **NOTES IMPORTANTES** : 
+        1. Ajustement CONGESTION : 
+           - Pour estimations SIMILARITY (cette fonction) : Appliqué À LA FIN dans _process_estimate()
+             via settings.ADJUSTMENT_CONGESTION_POURCENT (ex: +10% par tranche 20 pts congestion).
+           - Pour estimations ML : La congestion est déjà une FEATURE du modèle (Trajet.congestion_moyen
+             et congestion_user) → PAS de double ajustement post-prédiction.
+           - Cette fonction retourne seulement statut pour indiquer si ML ou similarity a été utilisé.
+        
+        2. Congestion/sinuosité en BD : 
+           - Stockées : Trajet.congestion_moyen (0-100 Mapbox), Trajet.sinuosite_indice (≥1.0)
+           - Usage principal : Features ML pour predict_prix_ml()
+           - Usage secondaire : Analyse patterns (ex: routes sinueuses = prix plus élevés)
+        
+        3. Variables différentes : 
+           - Si aucun match avec heure/météo/type_zone EXACTES, on cherche en ignorant ces filtres
+           - Ajustements heure/météo appliqués pour compenser différences (+50 CFA nuit, +10% pluie)
+           - Fiabilité réduite (0.85 étroit, 0.65 élargi)
         """
-        # TODO : Équipe implémente logique similarité complète avec :
-        # - Filtrage grossier par quartiers (Nominatim reverse-geocode)
-        # - Génération isochrones Mapbox 2min + 5min (get_isochrone)
-        # - Vérification containment Shapely (polygon.contains(point))
-        # - Fallback cercles Haversine (haversine_distance <= 50m / 150m)
-        # - Validation distances Matrix API (get_matrix)
-        # - Calculs ajustements prix (distance, congestion, sinuosité, météo, heure)
-        # - Fallback variables (ignorer filtres heure/météo si aucun match exact)
-        # - Construction dict réponse complète
-        pass
+        from shapely.geometry import shape, Point as ShapelyPoint
+        
+        # 1. FILTRAGE GROSSIER : Récupérer unités administratives pour filtrer candidats BD
+        info_depart = self._get_quartier_from_coords(depart_coords)
+        info_arrivee = self._get_quartier_from_coords(arrivee_coords)
+        
+        # Construire query base avec toutes les unités disponibles (maximiser chances match)
+        query_filters = Q()
+        
+        # Filtre départ : Prioriser commune, puis arrondissement, puis ville
+        if info_depart['commune']:
+            query_filters &= Q(point_depart__quartier__iexact=info_depart['commune'])
+        elif info_depart['arrondissement']:
+            query_filters &= Q(point_depart__arrondissement__iexact=info_depart['arrondissement'])
+        elif info_depart['ville']:
+            query_filters &= Q(point_depart__ville__iexact=info_depart['ville'])
+        
+        # Filtre arrivée : Même logique
+        if info_arrivee['commune']:
+            query_filters &= Q(point_arrivee__quartier__iexact=info_arrivee['commune'])
+        elif info_arrivee['arrondissement']:
+            query_filters &= Q(point_arrivee__arrondissement__iexact=info_arrivee['arrondissement'])
+        elif info_arrivee['ville']:
+            query_filters &= Q(point_arrivee__ville__iexact=info_arrivee['ville'])
+        
+        # Si aucun filtre (reverse-geocode échec), query full BD (lent mais exhaustif)
+        candidats = Trajet.objects.filter(query_filters) if query_filters else Trajet.objects.all()
+        
+        # Log si filtrage échoué
+        if not query_filters:
+            logger.warning(f"Filtrage géographique impossible pour {depart_coords} → {arrivee_coords}. Query full BD.")
+        
+        # Si <2 trajets après filtrage, skip calculs coûteux
+        if candidats.count() < 2:
+            logger.info(f"Moins de 2 candidats après filtrage géo. Return None.")
+            return None
+        
+        # 2. HIÉRARCHIE 2D : Périmètres (ÉTROIT→ÉLARGI) × Variables (EXACTES→DIFFÉRENTES)
+        
+        # Niveau 1A : PÉRIMÈTRE ÉTROIT + Variables EXACTES
+        result = self._check_perimetre_level(
+            candidats=candidats,
+            depart_coords=depart_coords,
+            arrivee_coords=arrivee_coords,
+            distance_mapbox=distance_mapbox,
+            heure=heure,
+            meteo=meteo,
+            type_zone=type_zone,
+            perimetre='etroit',
+            variables_exactes=True
+        )
+        if result:
+            return result
+        
+        # Niveau 1B : PÉRIMÈTRE ÉTROIT + Variables DIFFÉRENTES
+        result = self._check_perimetre_level(
+            candidats=candidats,
+            depart_coords=depart_coords,
+            arrivee_coords=arrivee_coords,
+            distance_mapbox=distance_mapbox,
+            heure=heure,
+            meteo=meteo,
+            type_zone=type_zone,
+            perimetre='etroit',
+            variables_exactes=False
+        )
+        if result:
+            return result
+        
+        # Niveau 2A : PÉRIMÈTRE ÉLARGI + Variables EXACTES
+        result = self._check_perimetre_level(
+            candidats=candidats,
+            depart_coords=depart_coords,
+            arrivee_coords=arrivee_coords,
+            distance_mapbox=distance_mapbox,
+            heure=heure,
+            meteo=meteo,
+            type_zone=type_zone,
+            perimetre='elargi',
+            variables_exactes=True
+        )
+        if result:
+            return result
+        
+        # Niveau 2B : PÉRIMÈTRE ÉLARGI + Variables DIFFÉRENTES
+        result = self._check_perimetre_level(
+            candidats=candidats,
+            depart_coords=depart_coords,
+            arrivee_coords=arrivee_coords,
+            distance_mapbox=distance_mapbox,
+            heure=heure,
+            meteo=meteo,
+            type_zone=type_zone,
+            perimetre='elargi',
+            variables_exactes=False
+        )
+        if result:
+            return result
+        
+        # Aucun match trouvé
+        logger.info(f"Aucun trajet similaire trouvé après hiérarchie complète.")
+        return None
+    
+    def _check_perimetre_level(
+        self,
+        candidats,
+        depart_coords: List[float],
+        arrivee_coords: List[float],
+        distance_mapbox: float,
+        heure: Optional[str],
+        meteo: Optional[int],
+        type_zone: Optional[int],
+        perimetre: str,  # 'etroit' ou 'elargi'
+        variables_exactes: bool  # True = filter heure/meteo, False = ignorer
+    ) -> Optional[Dict]:
+        """
+        Helper : Vérifie matches pour UN niveau de la hiérarchie (périmètre + variables).
+        
+        Args:
+            candidats : QuerySet trajets pré-filtrés géographiquement
+            depart_coords, arrivee_coords : Coords [lat, lon]
+            distance_mapbox : Distance routière requête (mètres)
+            heure, meteo, type_zone : Variables contextuelles
+            perimetre : 'etroit' (2min/50m) ou 'elargi' (5min/150m)
+            variables_exactes : True = filtrer heure/météo, False = ignorer filtres
+            
+        Returns:
+            Dict réponse estimation ou None si aucun match
+        """
+        from shapely.geometry import shape, Point as ShapelyPoint
+        
+        # Config périmètre
+        if perimetre == 'etroit':
+            isochrone_minutes = settings.ISOCHRONE_MINUTES_ETROIT
+            circle_radius_m = settings.CIRCLE_RADIUS_ETROIT_M
+            tolerance_pourcent = getattr(settings, 'SIMILARITY_DISTANCE_TOLERANCE_ETROIT_POURCENT', 10)
+            fiabilite_base = 0.95 if variables_exactes else 0.85
+            statut_base = 'exact' if variables_exactes else 'similaire_variables_diff_etroit'
+        else:  # elargi
+            isochrone_minutes = settings.ISOCHRONE_MINUTES_ELARGI
+            circle_radius_m = settings.CIRCLE_RADIUS_ELARGI_M
+            tolerance_pourcent = getattr(settings, 'SIMILARITY_DISTANCE_TOLERANCE_ELARGI_POURCENT', 20)
+            fiabilite_base = 0.75 if variables_exactes else 0.65
+            statut_base = 'similaire_elargi' if variables_exactes else 'similaire_variables_diff_elargi'
+        
+        # Filtrer par variables contextuelles si demandé
+        query = candidats
+        if variables_exactes:
+            if heure:
+                query = query.filter(heure=heure)
+            if meteo is not None:
+                query = query.filter(meteo=meteo)
+            if type_zone is not None:
+                query = query.filter(type_zone=type_zone)
+        
+        # Si <2 trajets après filtrage variables, return None
+        if query.count() < 2:
+            return None
+        
+        # 3. VÉRIFICATION PÉRIMÈTRE : Isochrones Mapbox ou fallback cercles Haversine
+        try:
+            # Tenter isochrones Mapbox
+            iso_depart = mapbox_client.get_isochrone(
+                coords=[depart_coords[1], depart_coords[0]],  # Mapbox attend [lon, lat]
+                minutes=isochrone_minutes,
+                profile='driving-traffic'
+            )
+            iso_arrivee = mapbox_client.get_isochrone(
+                coords=[arrivee_coords[1], arrivee_coords[0]],
+                minutes=isochrone_minutes,
+                profile='driving-traffic'
+            )
+            
+            if iso_depart and iso_arrivee:
+                # Convertir GeoJSON → Shapely Polygon
+                poly_depart = shape(iso_depart['features'][0]['geometry'])
+                poly_arrivee = shape(iso_arrivee['features'][0]['geometry'])
+                use_isochrones = True
+            else:
+                raise ValueError("Isochrones Mapbox retournés vides")
+                
+        except Exception as e:
+            logger.warning(f"Isochrones Mapbox échec ({e}). Fallback cercles Haversine {circle_radius_m}m.")
+            poly_depart = None
+            poly_arrivee = None
+            use_isochrones = False
+        
+        # Filtrer candidats dans périmètre
+        matches = []
+        for trajet in query:
+            # Vérifier si points du trajet sont dans périmètre
+            point_dep_trajet = ShapelyPoint(trajet.point_depart.coords_longitude, trajet.point_depart.coords_latitude)
+            point_arr_trajet = ShapelyPoint(trajet.point_arrivee.coords_longitude, trajet.point_arrivee.coords_latitude)
+            
+            if use_isochrones:
+                # Méthode Mapbox : containment Shapely
+                if poly_depart.contains(point_dep_trajet) and poly_arrivee.contains(point_arr_trajet):
+                    matches.append(trajet)
+            else:
+                # Fallback cercles Haversine
+                dist_dep = haversine_distance(
+                    depart_coords[0], depart_coords[1],
+                    trajet.point_depart.coords_latitude, trajet.point_depart.coords_longitude
+                )
+                dist_arr = haversine_distance(
+                    arrivee_coords[0], arrivee_coords[1],
+                    trajet.point_arrivee.coords_latitude, trajet.point_arrivee.coords_longitude
+                )
+                if dist_dep <= circle_radius_m and dist_arr <= circle_radius_m:
+                    matches.append(trajet)
+        
+        if len(matches) < 2:
+            return None
+        
+        # 4. VALIDATION DISTANCES : Matrix API ou Haversine
+        # Calculer distance_extra pour chaque match
+        matches_with_distance = []
+        for trajet in matches:
+            # Calculer différence distance : trajet demandé vs trajet BD
+            distance_diff = abs(distance_mapbox - trajet.distance)
+            distance_tolerance = (tolerance_pourcent / 100.0) * distance_mapbox
+            
+            # Accepter si dans tolérance
+            if distance_diff <= distance_tolerance:
+                distance_extra = distance_mapbox - trajet.distance  # Peut être négatif !
+                matches_with_distance.append({
+                    'trajet': trajet,
+                    'distance_extra': distance_extra
+                })
+        
+        if len(matches_with_distance) < 2:
+            return None
+        
+        # 5. CALCUL PRIX MOYEN + AJUSTEMENTS
+        trajets_match = [m['trajet'] for m in matches_with_distance]
+        prix_list = [t.prix for t in trajets_match]
+        distance_extra_moyen = sum(m['distance_extra'] for m in matches_with_distance) / len(matches_with_distance)
+        
+        prix_moyen = sum(prix_list) / len(prix_list)
+        prix_min = min(prix_list)
+        prix_max = max(prix_list)
+        
+        # Ajustements
+        ajustements = {'distance_extra_metres': distance_extra_moyen}
+        notes = []
+        
+        # Ajustement DISTANCE (bidirectionnel : + si plus long, - si plus court)
+        if perimetre == 'elargi':
+            # Conversion : ADJUSTMENT_PRIX_PAR_100M (ex: 5 CFA/100m)
+            ajust_distance = (distance_extra_moyen / 100.0) * settings.ADJUSTMENT_PRIX_PAR_100M
+            prix_moyen += ajust_distance
+            ajustements['ajustement_distance_cfa'] = ajust_distance
+            if ajust_distance > 0:
+                notes.append(f"+{int(ajust_distance)} CFA pour {int(distance_extra_moyen)}m extra")
+            elif ajust_distance < 0:
+                notes.append(f"{int(ajust_distance)} CFA pour {int(abs(distance_extra_moyen))}m de moins")
+        else:
+            ajustements['ajustement_distance_cfa'] = 0.0
+        
+        # Ajustement HEURE/MÉTÉO (seulement si variables DIFFÉRENTES)
+        if not variables_exactes:
+            # Identifier différence heure
+            if heure and trajets_match[0].heure != heure:
+                # Supposons BD a "jour" et user demande "nuit" → +50 CFA
+                # Ou inverse → -30 CFA (exemple simplifié)
+                # TODO : Logique plus précise selon combinaisons
+                ajust_heure = settings.ADJUSTMENT_HEURE_JOUR_NUIT_CFA if heure == 'nuit' else -30
+                prix_moyen += ajust_heure
+                ajustements['ajustement_heure_cfa'] = ajust_heure
+                notes.append(f"Prix basé sur trajets '{trajets_match[0].heure}' ({'+' if ajust_heure > 0 else ''}{int(ajust_heure)} CFA vs '{heure}' demandé)")
+            
+            # Identifier différence météo
+            if meteo is not None and trajets_match[0].meteo != meteo:
+                # Ex: BD pluie (1), demandé soleil (0) → -5%
+                # Ou BD soleil (0), demandé pluie (1) → +10%
+                pourcent_meteo = settings.ADJUSTMENT_METEO_SOLEIL_PLUIE_POURCENT
+                if meteo > trajets_match[0].meteo:  # Demandé pire météo
+                    ajust_meteo_pourcent = pourcent_meteo
+                else:  # Demandé meilleure météo
+                    ajust_meteo_pourcent = -pourcent_meteo // 2
+                
+                prix_moyen *= (1 + ajust_meteo_pourcent / 100.0)
+                ajustements['ajustement_meteo_pourcent'] = ajust_meteo_pourcent
+                meteo_names = {0: 'soleil', 1: 'pluie légère', 2: 'pluie forte', 3: 'orage'}
+                notes.append(f"Prix basé sur trajets '{meteo_names.get(trajets_match[0].meteo, 'inconnu')}' ({ajust_meteo_pourcent:+d}% vs '{meteo_names.get(meteo, 'inconnu')}' demandé)")
+        
+        # Message final
+        message_base = f"Estimation basée sur {len(trajets_match)} trajets"
+        if perimetre == 'etroit' and variables_exactes:
+            message = f"{message_base} exacts (périmètre {isochrone_minutes}min)."
+        elif perimetre == 'etroit':
+            message = f"{message_base} proches à variables différentes."
+        elif variables_exactes:
+            message = f"{message_base} similaires (périmètre {isochrone_minutes}min)."
+        else:
+            message = f"{message_base} similaires à variables différentes."
+        
+        if notes:
+            message += " " + " ".join(notes)
+        
+        return {
+            'statut': statut_base,
+            'prix_moyen': round(prix_moyen, 2),
+            'prix_min': round(prix_min, 2),
+            'prix_max': round(prix_max, 2),
+            'fiabilite': fiabilite_base,
+            'message': message,
+            'ajustements_appliques': ajustements,
+            'nb_trajets_matches': len(trajets_match)
+        }
     
     def fallback_inconnu(
         self,
