@@ -1031,45 +1031,69 @@ class EstimateView(APIView):
         congestion: Optional[float],
         sinuosite: Optional[float],
         nb_virages: Optional[int]
-    ) -> Optional[float]:
+    ) -> Optional[int]:
         """
-        Prédiction prix via modèle Machine Learning entraîné sur trajets BD.
+        Prédiction prix via modèle Machine Learning de CLASSIFICATION MULTICLASSE.
         
         **FONCTION CŒUR ML - ÉQUIPE IMPLÉMENTE LOGIQUE COMPLÈTE**
         
-        Modèle suggéré : Régression (scikit-learn RandomForestRegressor ou GradientBoosting)
-        Features :
+        ⚠️ IMPORTANT : Ce N'EST PAS une régression ! 
+        Les prix taxis au Cameroun appartiennent à des TRANCHES FIXES (18 classes) :
+        [100, 150, 200, 250, 300, 350, 400, 450, 500, 600, 700, 800, 900, 1000, 1200, 1500, 1700, 2000] CFA
+        
+        Le modèle doit prédire la CLASSE (tranche de prix) la plus probable, pas un float continu.
+        
+        Modèle recommandé : 
+            - RandomForestClassifier(n_estimators=100, max_depth=15) avec 18 classes
+            - XGBoostClassifier
+            - OU réseau neuronal avec softmax output (18 neurones)
+            
+        Features recommandées :
             - distance (float, mètres)
             - heure_encoded (int, 0-3 pour matin/apres-midi/soir/nuit)
             - meteo (int, 0-3)
             - type_zone (int, 0-2)
-            - congestion (float, 0-100, remplacer None par moyenne si manque)
+            - congestion (float, 0-100, remplacer None par moyenne ~50.0)
             - sinuosite (float, ≥1.0, remplacer None par 1.5 si manque)
             - nb_virages (int, remplacer None par 0)
-            - jour_semaine (int, 0-6, déduit de heure si timestamp disponible)
+            - feature_interaction : distance * congestion (capture non-linéarité)
             
         Workflow :
-            1. Charger modèle depuis fichier (ex. 'ml_models/prix_model.pkl') via joblib
+            1. Charger modèle classifier depuis 'ml_models/prix_classifier.pkl' via joblib
             2. Si modèle n'existe pas (pas encore entraîné), return None
-            3. Préparer features : encoder heure (mapping str→int), gérer manques (fillna avec moyennes)
-            4. Normaliser features si nécessaire (StandardScaler sauvegardé avec modèle)
-            5. Prédire : model.predict([features_array])
-            6. Return prix prédit (float)
+            3. Préparer features : encoder heure (mapping str→int), gérer manques (fillna)
+            4. Normaliser features (StandardScaler sauvegardé avec modèle)
+            5. Prédire classe : classe_idx = model.predict(features_scaled)[0]
+            6. Mapper index → prix réel : prix = PRIX_CLASSES_CFA[classe_idx]
+            7. Return prix (int, pas float !)
+            
+        Préparation target pour entraînement (via train_ml_model) :
+            1. Pour chaque trajet BD, mapper prix réel vers classe la plus proche
+               Ex: 275 CFA → classe 300 (plus proche que 250)
+            2. Encoder classes : [100, 150, ...] → indices [0, 1, 2, ..., 17]
+            3. Entraîner classifier avec y = indices classes
+            4. Sauvegarder mapping classes dans prix_classes.json
             
         Entraînement (via task Celery, voir tasks.py) :
-            1. Query tous trajets BD : Trajet.objects.all().values(...)
-            2. Préparer DataFrame pandas avec features + target (prix)
-            3. Split train/test (80/20)
-            4. Entraîner modèle (ex. RandomForestRegressor(n_estimators=100, random_state=42))
-            5. Évaluer metrics (MAE, RMSE, R²)
-            6. Sauvegarder modèle + scaler via joblib.dump
-            7. Logger infos (metrics, date entraînement)
+            1. Query tous trajets BD : Trajet.objects.all()
+            2. Mapper chaque prix BD vers classe proche (fonction mapper_prix_vers_classe)
+            3. Préparer features + target_classes (indices 0-17)
+            4. Split train/test (80/20) stratifié (keep class distribution)
+            5. Entraîner RandomForestClassifier ou XGBoost
+            6. Évaluer metrics : accuracy, f1-score, tolérance ±1 classe
+            7. Sauvegarder modèle + scaler + prix_classes.json
             
         Args:
-            distance, heure, meteo, type_zone, congestion, sinuosite, nb_virages : Features prédiction
+            distance : Distance routière (mètres)
+            heure : Tranche horaire ('matin', 'apres-midi', 'soir', 'nuit')
+            meteo : Code météo (0=soleil, 1=pluie légère, 2=pluie forte, 3=orage)
+            type_zone : Type zone (0=urbaine, 1=mixte, 2=rurale)
+            congestion : Niveau congestion Mapbox (0-100) ou None
+            sinuosite : Indice sinuosité (≥1.0) ou None
+            nb_virages : Nombre virages significatifs ou None
             
         Returns:
-            float : Prix prédit en CFA ou None si modèle indisponible
+            int : Prix prédit (une des 18 classes CFA) ou None si modèle indisponible
             
         Exemples :
             >>> prix_ml = self.predict_prix_ml(
@@ -1077,20 +1101,28 @@ class EstimateView(APIView):
             ...     congestion=45.0, sinuosite=2.3, nb_virages=7
             ... )
             >>> if prix_ml:
-            ...     print(f"Prédiction ML : {prix_ml:.2f} CFA")
+            ...     print(f"Prédiction ML : {prix_ml} CFA")  # Ex: "250 CFA" (int, pas float)
             
         Gestion erreurs :
-            - Si modèle échoue (exception), logger error et return None (utiliser autres estimations)
-            - Si features manquantes critiques (ex. distance=None), return None
+            - Si modèle échoue (exception), logger error et return None
+            - Si features manquantes critiques (distance=None), return None
+            - Si classe prédite hors limites (impossible mais safe), clip vers [100, 2000]
             
         Note performance :
-            - Avec 100+ trajets BD, R² attendu ~0.7-0.8
-            - Avec 1000+ trajets, R² >0.85 possible
+            - Avec 100+ trajets BD, accuracy attendue ~0.65-0.75
+            - Avec 500+ trajets, accuracy ~0.75-0.82, tolérance ±1 classe >0.90
+            - Avec 1000+ trajets, accuracy >0.85 possible
             - Ré-entraîner quotidiennement via Celery pour intégrer nouveaux trajets
+            
+        Métriques à utiliser (PAS R²/RMSE !) :
+            - accuracy : Pourcentage classes exactes prédites
+            - f1_score (weighted) : Balance precision/recall multi-classes
+            - tolerance_1_classe : Pourcentage prédictions ±1 classe (250 au lieu 300 = OK)
         """
-        # TODO : ÉQUIPE IMPLÉMENTE LOGIQUE ML COMPLÈTE
-        # TODO : Charger modèle depuis fichier (gérer FileNotFoundError)
-        # TODO : Encoder features, normaliser, prédire
+        # TODO : ÉQUIPE IMPLÉMENTE LOGIQUE CLASSIFICATION COMPLÈTE
+        # TODO : Charger classifier (prix_classifier.pkl) + scaler + prix_classes.json
+        # TODO : Encoder features, normaliser, prédire classe (index 0-17)
+        # TODO : Mapper index → prix réel (PRIX_CLASSES_CFA[classe_idx])
         # TODO : Gérer exceptions (return None si erreur)
         pass
     

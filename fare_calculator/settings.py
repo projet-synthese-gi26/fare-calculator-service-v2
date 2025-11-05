@@ -170,6 +170,14 @@ NOMINATIM_USER_AGENT = os.getenv('NOMINATIM_USER_AGENT', 'taxi-estimator-camerou
 PRIX_STANDARD_JOUR_CFA = float(os.getenv('PRIX_STANDARD_JOUR_CFA', '300'))  # Tarif jour de base
 PRIX_STANDARD_NUIT_CFA = float(os.getenv('PRIX_STANDARD_NUIT_CFA', '350'))  # Tarif nuit (22h-6h), majoration +17%
 
+# Classes de prix taxis Cameroun (pour ML classification - 18 classes)
+# Les prix taxis ne sont PAS continus mais appartiennent à des tranches fixes
+# Variation minimale : 50 CFA
+PRIX_CLASSES_CFA = [
+    100, 150, 200, 250, 300, 350, 400, 450, 500, 
+    600, 700, 800, 900, 1000, 1200, 1500, 1700, 2000
+]
+
 # Seuils similarité trajets
 MAX_DISTANCE_SIMILARITY_METERS = float(os.getenv('MAX_DISTANCE_SIMILARITY_METERS', '150'))  # Rayon cercle fallback si isochrones échouent
 ISOCHRONE_MINUTES_EXACT = [int(os.getenv('ISOCHRONE_MINUTES_EXACT', '2'))]  # Périmètre exact (2 min atteignable)

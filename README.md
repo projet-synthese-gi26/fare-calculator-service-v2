@@ -2017,7 +2017,18 @@ settings.ML_MODEL_R2_SCORE  # 0.78 (à update après training)
 
 ### Fonction 3 : `predict_prix_ml()`
 
-**Objectif** : Prédiction via modèle ML entraîné (RandomForest, XGBoost, ou réseau neuronal).
+**Objectif** : Prédiction via modèle ML de **CLASSIFICATION MULTICLASSE** (pas régression !).
+
+**IMPORTANT** : Les prix des taxis au Cameroun ne sont PAS continues mais appartiennent à des **tranches fixes** :
+
+```python
+PRIX_CLASSES_CFA = [
+    100, 150, 200, 250, 300, 350, 400, 450, 500, 
+    600, 700, 800, 900, 1000, 1200, 1500, 1700, 2000
+]
+# 18 classes au total
+# Variation minimale : 50 CFA
+```
 
 **Localisation** : `core/views.py`, lignes ~285-310
 
@@ -2025,7 +2036,11 @@ settings.ML_MODEL_R2_SCORE  # 0.78 (à update après training)
 ```python
 def predict_prix_ml(distance, heure, meteo, type_zone, congestion_moyen, sinuosite, nb_virages):
     """
-    Prédiction prix via modèle ML entraîné.
+    Prédiction prix via modèle ML de CLASSIFICATION MULTICLASSE.
+    
+    ⚠️ IMPORTANT : Ce N'EST PAS une régression ! 
+    Les prix taxis Cameroun appartiennent à des tranches fixes (100, 150, 200, 250, ..., 2000 CFA).
+    Le modèle doit prédire la CLASSE (tranche de prix) la plus probable.
     
     Features recommandées :
     - distance (float, mètres)
@@ -2038,9 +2053,13 @@ def predict_prix_ml(distance, heure, meteo, type_zone, congestion_moyen, sinuosi
     - feature_interaction : distance * congestion_moyen (pour capturer non-linéarité)
     
     Modèle recommandé :
-    - RandomForestRegressor (sklearn) OU XGBoost OU réseau neuronal simple
-    - Features normalisées via StandardScaler
-    - Target : prix (CFA)
+    - RandomForestClassifier (sklearn) avec 18 classes
+    - XGBoost Classifier
+    - OU réseau neuronal avec softmax output (18 neurones)
+    
+    Target encoding :
+    - Mapper chaque prix BD (ex: 275 CFA) à la classe la plus proche (250 ou 300)
+    - Classes = [100, 150, 200, 250, 300, 350, 400, 450, 500, 600, 700, 800, 900, 1000, 1200, 1500, 1700, 2000]
     
     Args:
         distance (float): Distance routière (mètres)
@@ -2052,12 +2071,46 @@ def predict_prix_ml(distance, heure, meteo, type_zone, congestion_moyen, sinuosi
         nb_virages (int): Nombre virages
     
     Returns:
-        float: Prix prédit en CFA
+        int: Prix prédit (une des 18 classes) en CFA
+        
+    Exemple :
+        >>> predict_prix_ml(5200, 'matin', 1, 0, 45.0, 1.2, 8)
+        250  # Classe prédite (pas 247.8 ou autre float !)
     """
     pass
 ```
 
-#### Algorithme recommandé
+#### Algorithme recommandé (Classification Multiclasse)
+
+**Étape 0 : Définir les classes de prix**
+
+```python
+# Classes fixes des prix taxis Cameroun (18 classes)
+PRIX_CLASSES_CFA = [
+    100, 150, 200, 250, 300, 350, 400, 450, 500, 
+    600, 700, 800, 900, 1000, 1200, 1500, 1700, 2000
+]
+
+def mapper_prix_vers_classe(prix_reel):
+    """
+    Mapper un prix réel BD (ex: 275 CFA) vers la classe la plus proche.
+    
+    Args:
+        prix_reel (float): Prix exact payé par user
+        
+    Returns:
+        int: Classe de prix la plus proche
+        
+    Exemple:
+        >>> mapper_prix_vers_classe(275)
+        300  # Plus proche de 300 que de 250
+        >>> mapper_prix_vers_classe(225)
+        250  # Plus proche de 250 que de 200
+    """
+    import numpy as np
+    idx = np.argmin([abs(prix_reel - classe) for classe in PRIX_CLASSES_CFA])
+    return PRIX_CLASSES_CFA[idx]
+```
 
 **Étape 1 : Encodage features**
 
@@ -2091,50 +2144,63 @@ features = np.array([[
 ]])
 ```
 
-**Étape 2 : Chargement modèle**
+**Étape 2 : Chargement modèle CLASSIFIER (pas Regressor !)**
 
 ```python
 import joblib
 from django.conf import settings
 import os
 
-model_path = os.path.join(settings.BASE_DIR, 'core', 'ml_models', 'prix_model.pkl')
+model_path = os.path.join(settings.BASE_DIR, 'core', 'ml_models', 'prix_classifier.pkl')
 scaler_path = os.path.join(settings.BASE_DIR, 'core', 'ml_models', 'scaler.pkl')
+classes_path = os.path.join(settings.BASE_DIR, 'core', 'ml_models', 'prix_classes.json')
 
 # Charger modèle + scaler (pré-entraînés via train_ml_model)
 try:
-    model = joblib.load(model_path)
+    model = joblib.load(model_path)  # RandomForestClassifier ou XGBoost
     scaler = joblib.load(scaler_path)
+    
+    # Charger liste classes (ordre important pour predict)
+    import json
+    with open(classes_path, 'r') as f:
+        prix_classes = json.load(f)  # [100, 150, 200, ..., 2000]
+        
 except FileNotFoundError:
     # Fallback si modèle pas encore entraîné
-    from django.conf import settings
+    logger.warning("Modèle ML non entraîné. Retour prix standard.")
     return settings.PRIX_STANDARD_JOUR_CFA  # 300 CFA par défaut
 ```
 
-**Étape 3 : Prédiction**
+**Étape 3 : Prédiction de la CLASSE**
 
 ```python
 # Normalisation features
 features_scaled = scaler.transform(features)
 
-# Prédiction
-prix_predit = model.predict(features_scaled)[0]
+# Prédiction de la classe (index 0-17)
+classe_idx = model.predict(features_scaled)[0]
 
-# Clipping (éviter prédictions aberrantes)
-prix_min = settings.ML_PRIX_MIN_CFA  # 50 CFA
-prix_max = settings.ML_PRIX_MAX_CFA  # 2000 CFA
-prix_predit = np.clip(prix_predit, prix_min, prix_max)
+# Mapper index → prix réel
+prix_predit = prix_classes[classe_idx]
 
-return float(prix_predit)
+# Optionnel : Récupérer probabilités pour toutes les classes
+probas = model.predict_proba(features_scaled)[0]
+top_3_indices = np.argsort(probas)[-3:][::-1]
+top_3_classes = [(prix_classes[i], probas[i]) for i in top_3_indices]
+
+logger.info(f"Prédiction ML : {prix_predit} CFA (confiance {probas[classe_idx]:.2f})")
+logger.debug(f"Top 3 classes : {top_3_classes}")
+
+return int(prix_predit)  # Return int, pas float !
 ```
 
 #### Constants settings à utiliser
 
 ```python
-settings.ML_MODEL_PATH  # 'core/ml_models/prix_model.pkl'
+settings.ML_MODEL_PATH  # 'core/ml_models/prix_classifier.pkl' (RandomForestClassifier)
 settings.ML_SCALER_PATH  # 'core/ml_models/scaler.pkl'
-settings.ML_PRIX_MIN_CFA  # 50
-settings.ML_PRIX_MAX_CFA  # 2000
+settings.ML_CLASSES_PATH  # 'core/ml_models/prix_classes.json'
+settings.PRIX_CLASSES_CFA  # [100, 150, 200, ..., 2000]  (18 classes)
 ```
 
 #### Structure modèle attendue
@@ -2145,10 +2211,35 @@ Le modèle doit être entraîné via `train_ml_model()` (voir fonction 4) et sau
 # Exemple structure fichiers ML
 core/
   ml_models/
-    prix_model.pkl  # RandomForestRegressor ou XGBoost
+    prix_classifier.pkl  # RandomForestClassifier ou XGBoostClassifier (18 classes)
     scaler.pkl  # StandardScaler
+    prix_classes.json  # [100, 150, 200, 250, ..., 2000]
     feature_names.json  # ['distance_km', 'heure_encoded', ...]
-    metrics.json  # {'r2_score': 0.78, 'rmse': 45.2, ...}
+    metrics.json  # {"accuracy": 0.82, "f1_score": 0.79, "tolerance_1_classe": 0.91}
+```
+
+#### Métriques de performance (Classification)
+
+Pour évaluer le modèle classifier (pas R²/RMSE car pas régression !) :
+
+```python
+from sklearn.metrics import accuracy_score, f1_score, classification_report, confusion_matrix
+
+# Métriques classification
+accuracy = accuracy_score(y_test_classes, y_pred_classes)
+f1_macro = f1_score(y_test_classes, y_pred_classes, average='macro')
+f1_weighted = f1_score(y_test_classes, y_pred_classes, average='weighted')
+
+# Tolérance ±1 classe (ex: prédit 300 au lieu de 250 = acceptable)
+tolerance_1 = np.mean(np.abs(y_test_classes - y_pred_classes) <= 1)
+
+print(f"Accuracy : {accuracy:.3f}")
+print(f"F1-score (macro) : {f1_macro:.3f}")
+print(f"F1-score (weighted) : {f1_weighted:.3f}")
+print(f"Tolérance ±1 classe : {tolerance_1:.3f}")
+
+# Rapport détaillé par classe
+print(classification_report(y_test_classes, y_pred_classes, target_names=[str(p) for p in PRIX_CLASSES_CFA]))
 ```
 
 ---
