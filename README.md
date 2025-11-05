@@ -1,9 +1,140 @@
-# Documentation API - Service d'Estimation de Prix Taxi Cameroun
+<div align="center">
 
-**Version** : 1.0  
-**Base URL** : `http://localhost:8000/api/`  
-**Format** : JSON  
-**Authentification** : API Key (Header `Authorization`)
+<img src="doc/taxi-logo.png" alt="Taxi Fare Calculator" width="200"/>
+
+# Taxi Fare Calculator API
+
+### Service d'Estimation Intelligente des Prix de Taxi au Cameroun
+
+[![Django](https://img.shields.io/badge/Django-5.2.1-092E20?style=for-the-badge&logo=django&logoColor=white)](https://www.djangoproject.com/)
+[![DRF](https://img.shields.io/badge/DRF-3.16.0-ff1709?style=for-the-badge&logo=django&logoColor=white)](https://www.django-rest-framework.org/)
+[![Python](https://img.shields.io/badge/Python-3.11+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
+[![Mapbox](https://img.shields.io/badge/Mapbox-API-000000?style=for-the-badge&logo=mapbox&logoColor=white)](https://www.mapbox.com/)
+
+[**Documentation**](#documentation-complète) • [**Installation**](#installation) • [**API Docs**](API_DOC.md) • [**Guide ML**](#guide-dimplémentation-ml)
+
+</div>
+
+---
+
+## Vue d'Ensemble
+
+API REST complète pour **estimer intelligemment les prix de courses de taxi** au Cameroun (focus Yaoundé). Utilise une approche hybride combinant :
+
+- **Matching par Similarité** : Recherche de trajets similaires avec isochrones Mapbox (2D hierarchy: périmètres × variables)
+- ** Machine Learning** : Classification multiclasse (18 tranches de prix fixes) avec features géospatiales
+- **Géolocalisation Avancée** : Intégration Mapbox (Directions, Matrix, Isochrone) + Nominatim + OpenMeteo
+- **Données Communautaires** : Base de données enrichie par les utilisateurs réels
+
+### Caractéristiques Principales
+
+- ✅ **Estimation en temps réel** avec ajustements contextuels (heure, météo, congestion, sinuosité)
+- ✅ **4 niveaux de fallback** : Similarité étroite → élargie → variables différentes → ML
+- ✅ **API RESTful** avec authentification par clé API et rate limiting
+- ✅ **Admin Django** complet pour gestion données et statistiques
+- ✅ **Documentation exhaustive** (API_DOC.md 73k tokens, docstrings détaillées)
+
+---
+
+## 🛠️ Stack Technique
+
+| Catégorie | Technologies |
+|-----------|-------------|
+| **Backend** | Django 5.2.1, Django REST Framework 3.16.0 |
+| **Python** | Python 3.11+ |
+| **Géospatial** | Shapely 2.0.6 (isochrones), Geopy 2.4.1 |
+| **APIs Externes** | Mapbox API, Nominatim OSM, OpenMeteo |
+| **Async Tasks** | Celery 5.4.0, Redis 5.0.7 |
+| **ML (À implémenter)** | scikit-learn, XGBoost (classification 18 classes) |
+| **Base de Données** | PostgreSQL / SQLite (dev) |
+| **Conteneurisation** | Docker, Docker Compose |
+
+---
+
+## Installation
+
+### Prérequis
+
+- Python 3.11+
+- pip 23.0+
+- Virtualenv (recommandé)
+- Redis (pour Celery)
+- Token Mapbox API ([gratuit 50k req/mois](https://account.mapbox.com/))
+
+### Configuration Rapide
+
+```bash
+# 1. Cloner le repo
+git clone https://github.com/projet-synthese-gi26/fare-calculator-service-v2.git
+cd fare-calculator-service-v2
+
+# 2. Créer environnement virtuel
+python -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
+
+# 3. Installer dépendances
+pip install -r requirements.txt
+
+# 4. Configurer variables d'environnement
+cp .env.example .env
+# Éditer .env avec votre MAPBOX_ACCESS_TOKEN
+
+# 5. Migrations base de données
+python manage.py migrate
+
+# 6. Créer superuser admin
+python manage.py createsuperuser
+
+# 7. Lancer serveur développement
+python manage.py runserver
+```
+
+L'API est maintenant accessible à : **http://localhost:8000/api/**
+
+---
+
+## Démarrage Rapide
+
+### 1. Générer une Clé API
+
+Accédez à l'admin Django : http://localhost:8000/admin/
+
+- **Login** avec superuser créé
+- Naviguez vers **Core > Api Keys**
+- Cliquez **"Ajouter API Key"**
+- Notez l'UUID généré (ex: `550e8400-e29b-41d4-a716-446655440000`)
+
+### 2. Première Requête d'Estimation
+
+```bash
+curl -X POST http://localhost:8000/api/estimate/ \
+  -H "Authorization: ApiKey 550e8400-e29b-41d4-a716-446655440000" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "depart": {
+      "coords": [3.8547, 11.5021],
+      "label": "École Polytechnique Yaoundé"
+    },
+    "arrivee": {
+      "coords": [3.8667, 11.5174],
+      "label": "Carrefour Ekounou"
+    },
+    "heure": "matin",
+    "meteo": 0
+  }'
+```
+
+**Réponse** :
+```json
+{
+  "statut": "similaire_etroit",
+  "prix_moyen": 250,
+  "prix_min": 200,
+  "prix_max": 300,
+  "fiabilite": 0.95,
+  "message": "Estimation basée sur 8 trajets exacts (périmètre 2min)."
+}
+```
 
 ---
 
