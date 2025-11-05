@@ -151,38 +151,38 @@ load_dotenv()  # Charge .env
 
 # Mapbox API Configuration
 MAPBOX_ACCESS_TOKEN = os.getenv('MAPBOX_TOKEN', 'pk.eyJ1IjoibTJnaSIsImEiOiJjbWhramlqcnIwYW5rMmlzY3ViZmg1NGFmIn0.q3XQxQTte7ADbn32fwFh-g')
-MAPBOX_BASE_URL = 'https://api.mapbox.com'
-MAPBOX_CACHE_ENABLED = True
-MAPBOX_CACHE_TTL_SECONDS = 3600  # 1h pour données trafic dynamiques
+MAPBOX_BASE_URL = os.getenv('MAPBOX_BASE_URL', 'https://api.mapbox.com')
+MAPBOX_CACHE_ENABLED = os.getenv('MAPBOX_CACHE_ENABLED', 'True').lower() == 'true'
+MAPBOX_CACHE_TTL_SECONDS = int(os.getenv('MAPBOX_CACHE_TTL_SECONDS', '3600'))  # 1h pour données trafic dynamiques
 
 # OpenMeteo API Configuration (gratuit, pas de token)
-OPENMETEO_BASE_URL = 'https://api.open-meteo.com/v1'
+OPENMETEO_BASE_URL = os.getenv('OPENMETEO_BASE_URL', 'https://api.open-meteo.com/v1')
 
 # Nominatim (OpenStreetMap) Configuration
-NOMINATIM_BASE_URL = 'https://nominatim.openstreetmap.org'
-NOMINATIM_USER_AGENT = 'taxi-estimator-cameroun/1.0 (contact@example.com)'
+NOMINATIM_BASE_URL = os.getenv('NOMINATIM_BASE_URL', 'https://nominatim.openstreetmap.org')
+NOMINATIM_USER_AGENT = os.getenv('NOMINATIM_USER_AGENT', 'taxi-estimator-cameroun/1.0 (contact@example.com)')
 
 # ==============================================================================
 # CONSTANTES PROJET (TARIFS & SEUILS)
 # ==============================================================================
 
 # Prix standards Cameroun (tarifs officiels approximatifs)
-PRIX_STANDARD_JOUR_CFA = 300  # Tarif jour de base
-PRIX_STANDARD_NUIT_CFA = 350  # Tarif nuit (22h-6h), majoration +17%
+PRIX_STANDARD_JOUR_CFA = float(os.getenv('PRIX_STANDARD_JOUR_CFA', '300'))  # Tarif jour de base
+PRIX_STANDARD_NUIT_CFA = float(os.getenv('PRIX_STANDARD_NUIT_CFA', '350'))  # Tarif nuit (22h-6h), majoration +17%
 
 # Seuils similarité trajets
-MAX_DISTANCE_SIMILARITY_METERS = 150  # Rayon cercle fallback si isochrones échouent
-ISOCHRONE_MINUTES_EXACT = [2]  # Périmètre exact (2 min atteignable)
-ISOCHRONE_MINUTES_SIMILAR = [5]  # Périmètre élargi (5 min atteignable)
+MAX_DISTANCE_SIMILARITY_METERS = float(os.getenv('MAX_DISTANCE_SIMILARITY_METERS', '150'))  # Rayon cercle fallback si isochrones échouent
+ISOCHRONE_MINUTES_EXACT = [int(os.getenv('ISOCHRONE_MINUTES_EXACT', '2'))]  # Périmètre exact (2 min atteignable)
+ISOCHRONE_MINUTES_SIMILAR = [int(os.getenv('ISOCHRONE_MINUTES_SIMILAR', '5'))]  # Périmètre élargi (5 min atteignable)
 
 # Ajustements prix
-PRIX_AJUSTEMENT_PAR_100M = 15  # +15 CFA par 100m distance extra
-PRIX_AJUSTEMENT_CONGESTION_POURCENT = 10  # +10% si congestion haute (>70)
-PRIX_AJUSTEMENT_METEO_PLUIE_POURCENT = 5  # +5% si pluie
-PRIX_AJUSTEMENT_NUIT_POURCENT = 17  # +17% tarif nuit
+PRIX_AJUSTEMENT_PAR_100M = float(os.getenv('PRIX_AJUSTEMENT_PAR_100M', '15'))  # +15 CFA par 100m distance extra
+PRIX_AJUSTEMENT_CONGESTION_POURCENT = float(os.getenv('PRIX_AJUSTEMENT_CONGESTION_POURCENT', '10'))  # +10% si congestion haute (>70)
+PRIX_AJUSTEMENT_METEO_PLUIE_POURCENT = float(os.getenv('PRIX_AJUSTEMENT_METEO_PLUIE_POURCENT', '5'))  # +5% si pluie
+PRIX_AJUSTEMENT_NUIT_POURCENT = float(os.getenv('PRIX_AJUSTEMENT_NUIT_POURCENT', '17'))  # +17% tarif nuit
 
 # Seuils ML (minimum trajets requis pour entraînement)
-MIN_TRAJETS_FOR_ML_TRAINING = 50  # 50 trajets minimum pour entraîner modèle
+MIN_TRAJETS_FOR_ML_TRAINING = int(os.getenv('MIN_TRAJETS_FOR_ML_TRAINING', '50'))  # 50 trajets minimum pour entraîner modèle
 
 # ==============================================================================
 # LOGGING CONFIGURATION
