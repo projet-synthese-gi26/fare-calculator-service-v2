@@ -415,6 +415,41 @@ class EstimateView(APIView):
             logger.warning(f"_get_quartier_from_coords échec pour {coords}: {e}")
             return {'commune': None, 'quartier': None, 'ville': None, 'arrondissement': None, 'departement': None}
     
+    def _arrondir_prix_vers_classe(self, prix: float) -> int:
+        """
+        Arrondit un prix calculé vers la classe de prix valide la plus proche.
+        
+        Les prix taxis Cameroun appartiennent à des tranches fixes (18 classes) :
+        [100, 150, 200, 250, 300, 350, 400, 450, 500, 600, 700, 800, 900, 1000, 1200, 1500, 1700, 2000]
+        
+        Args:
+            prix : Prix calculé (float, peut être 247.8 ou 312.5 par exemple)
+            
+        Returns:
+            int : Classe de prix la plus proche (ex: 247.8 → 250, 312.5 → 300)
+            
+        Exemples:
+            >>> self._arrondir_prix_vers_classe(247.8)
+            250
+            >>> self._arrondir_prix_vers_classe(312.5)
+            300
+            >>> self._arrondir_prix_vers_classe(75.0)
+            100  # Prix minimum
+            >>> self._arrondir_prix_vers_classe(2500.0)
+            2000  # Prix maximum
+        """
+        import numpy as np
+        
+        # Utiliser les classes définies dans settings
+        classes = settings.PRIX_CLASSES_CFA
+        
+        # Clip prix entre min et max
+        prix = max(classes[0], min(prix, classes[-1]))
+        
+        # Trouver classe la plus proche
+        idx = np.argmin([abs(prix - classe) for classe in classes])
+        return classes[idx]
+    
     def check_similar_match(
         self,
         depart_coords: List[float],
@@ -942,11 +977,17 @@ class EstimateView(APIView):
         if notes:
             message += " " + " ".join(notes)
         
+        # IMPORTANT : Arrondir prix aux CLASSES valides (100, 150, 200, 250, ...)
+        # Les prix taxis Cameroun ne sont PAS continus mais appartiennent à des tranches fixes
+        prix_moyen_arrondi = self._arrondir_prix_vers_classe(prix_moyen)
+        prix_min_arrondi = self._arrondir_prix_vers_classe(prix_min)
+        prix_max_arrrond = self._arrondir_prix_vers_classe(prix_max)
+        
         return {
             'statut': statut_base,
-            'prix_moyen': round(prix_moyen, 2),
-            'prix_min': round(prix_min, 2),
-            'prix_max': round(prix_max, 2),
+            'prix_moyen': prix_moyen_arrondi,  # int, pas float !
+            'prix_min': prix_min_arrondi,
+            'prix_max': prix_max_arrrond,
             'fiabilite': fiabilite_base,
             'message': message,
             'ajustements_appliques': ajustements,
@@ -960,15 +1001,18 @@ class EstimateView(APIView):
         heure: Optional[str],
         meteo: Optional[int],
         type_zone: Optional[int]
-    ) -> Dict[str, float]:
+    ) -> Dict[str, int]:
         """
         Génère estimations pour trajet totalement inconnu (aucun similaire en BD).
+        
+        ⚠️ IMPORTANT : Retourne des CLASSES de prix valides (int), pas float continus.
+        Toutes estimations sont arrondies aux tranches fixes : [100, 150, 200, ..., 2000] CFA
         
         Retourne 3-4 estimations différentes pour donner choix à utilisateur :
             1. distance_based : Basé sur distance routière Mapbox et prix/km moyen BD
             2. standardise : Tarifs officiels Cameroun (300 CFA jour, 350 nuit)
             3. zone_based : Prix moyen dans arrondissement/ville (fallback large)
-            4. ml_prediction : Prédiction ML via modèle entraîné (si disponible)
+            4. ml_prediction : Prédiction ML classifier (si disponible)
             
         Args:
             depart_coords, arrivee_coords : Coords [lat, lon]
@@ -976,10 +1020,10 @@ class EstimateView(APIView):
             
         Returns:
             Dict : {
-                'distance_based': float,
-                'standardise': float,
-                'zone_based': float,
-                'ml_prediction': float ou None
+                'distance_based': int,  # Classe valide (ex: 250, pas 247.8)
+                'standardise': int,  # Classe valide (300 ou 350 typiquement)
+                'zone_based': int,  # Classe valide
+                'ml_prediction': int ou None  # Classe valide (si modèle disponible)
             }
             
         Workflow :
@@ -1007,19 +1051,25 @@ class EstimateView(APIView):
             ... )
             >>> print(estimations)
             {
-                'distance_based': 280.0,
-                'standardise': 300.0,
-                'zone_based': 290.0,
-                'ml_prediction': 285.0
+                'distance_based': 300,  # int, pas float !
+                'standardise': 300,
+                'zone_based': 300,
+                'ml_prediction': 250
             }
             
         Gestion manques :
             - Si Mapbox échoue distance, fallback Haversine * facteur sinuosité moyen (1.5)
             - Si BD vide (pas trajets), utiliser uniquement standardise
             - Si ML non entraîné, ml_prediction = None (géré dans serializer output)
+            
+        Note implémentation :
+            - Toutes estimations (distance_based, zone_based) doivent appeler self._arrondir_prix_vers_classe()
+            - Même si calcul donne 247.8 CFA, retourner 250 CFA (classe valide)
+            - Prix minimum = 100 CFA (settings.PRIX_CLASSES_CFA[0])
         """
         # TODO : Équipe implémente estimations fallback complètes
         # TODO : Intégrer appels Mapbox Directions, agrégations Django, predict_prix_ml
+        # TODO : IMPORTANT : Arrondir tous prix avec self._arrondir_prix_vers_classe()
         pass
     
     def predict_prix_ml(

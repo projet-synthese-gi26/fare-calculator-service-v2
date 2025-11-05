@@ -1148,9 +1148,41 @@ curl http://localhost:8000/api/health/
 
 ---
 
-## 🤖 Guide d'Implémentation ML pour l'Équipe
+##  Guide d'Implémentation ML pour l'Équipe
 
 Cette section documente les **3 fonctions principales à implémenter** dans `core/views.py`. Ces fonctions sont actuellement des stubs (`pass` + docstrings détaillées) pour permettre à l'équipe ML de les compléter selon les algorithmes décrits dans la documentation du projet.
+
+### ⚠️ CRITIQUE : Classes de Prix Taxis (Pas de Régression !)
+
+**Les prix taxis au Cameroun ne sont PAS continus mais appartiennent à des TRANCHES FIXES** :
+
+```python
+# Constante définie dans settings.py
+PRIX_CLASSES_CFA = [
+    100, 150, 200, 250, 300, 350, 400, 450, 500, 
+    600, 700, 800, 900, 1000, 1200, 1500, 1700, 2000
+]
+# 18 classes au total
+# Variation minimale : 50 CFA
+# Prix minimum : 100 CFA
+# Prix maximum : 2000 CFA
+```
+
+**Conséquences pour l'implémentation** :
+
+1. **Fonction `check_similar_match()`** : 
+   - Tous prix retournés (prix_moyen, prix_min, prix_max) doivent être arrondis aux classes valides
+   - Helper `_arrondir_prix_vers_classe(prix)` créée pour mapper float → classe proche
+   - Ex: 247.8 CFA → 250 CFA, 312.5 → 300 CFA
+
+2. **Fonction `predict_prix_ml()`** :
+   - Modèle = **Classification Multiclasse** (18 classes), PAS régression
+   - Return type : `int` (classe valide), pas `float`
+   - Métriques : accuracy, f1-score, tolérance ±1 classe (PAS R²/RMSE)
+
+3. **Fonction `fallback_inconnu()`** :
+   - Toutes 4 estimations doivent retourner `int` (classes valides)
+   - Même estimation distance-based ou zone-based → arrondir avec `_arrondir_prix_vers_classe()`
 
 ### ⚠️ IMPORTANT : Architecture Correcte du Système de Similarité
 
