@@ -1,0 +1,15 @@
+*.zip
+doc/*.txt
+doc/APPORT DE MAPBOX.MD
+doc/DESCRIPTION DU PROJET.MD
+doc/DETAILS SUR MAPBOX DANS LE PROJET.MD
+notes.txt
+temp/
+build/
+*.log
+__pycache__/
+*.pyc
+.env
+.vscode/
+.idea/
+.DS_Store
