@@ -104,37 +104,6 @@ Accédez à l'admin Django : http://localhost:8000/admin/
 - Cliquez **"Ajouter API Key"**
 - Notez l'UUID généré (ex: `550e8400-e29b-41d4-a716-446655440000`)
 
-### 2. Première Requête d'Estimation
-
-```bash
-curl -X POST http://localhost:8000/api/estimate/ \
-  -H "Authorization: ApiKey 550e8400-e29b-41d4-a716-446655440000" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "depart": {
-      "coords": [3.8547, 11.5021],
-      "label": "École Polytechnique Yaoundé"
-    },
-    "arrivee": {
-      "coords": [3.8667, 11.5174],
-      "label": "Carrefour Ekounou"
-    },
-    "heure": "matin",
-    "meteo": 0
-  }'
-```
-
-**Réponse** :
-```json
-{
-  "statut": "similaire_etroit",
-  "prix_moyen": 250,
-  "prix_min": 200,
-  "prix_max": 300,
-  "fiabilite": 0.95,
-  "message": "Estimation basée sur 8 trajets exacts (périmètre 2min)."
-}
-```
 
 ---
 
