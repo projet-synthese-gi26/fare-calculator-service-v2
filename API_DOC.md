@@ -1145,8 +1145,3 @@ curl http://localhost:8000/api/health/
 **Documentation Mapbox** : https://docs.mapbox.com/api/  
 **Documentation OpenMeteo** : https://open-meteo.com/en/docs  
 **Documentation Nominatim** : https://nominatim.org/release-docs/latest/  
-
----
-
-**Dernière mise à jour** : 5 novembre 2025  
-**Version API** : 2.0.0
