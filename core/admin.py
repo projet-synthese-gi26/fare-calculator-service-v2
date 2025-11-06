@@ -13,25 +13,45 @@ class ApiKeyAdmin(admin.ModelAdmin):
     readonly_fields = ['key', 'created_at', 'last_used', 'usage_count']
     ordering = ['-usage_count', '-created_at']
     
-    fieldsets = (
-        ('Informations', {
-            'fields': ('name', 'key', 'is_active')
-        }),
-        ('Statistiques', {
-            'fields': ('usage_count', 'created_at', 'last_used')
-        }),
-    )
-    
     def key_display(self, obj):
         """Affiche seulement les 8 premiers caractères de la clé"""
         return f"{str(obj.key)[:8]}..."
     key_display.short_description = "Clé API"
     
+    def get_fieldsets(self, request, obj=None):
+        """
+        Fieldsets différents pour création vs édition.
+        Le champ 'key' (editable=False) ne peut pas être dans le formulaire de création.
+        """
+        if obj:  # Edition : afficher la clé en readonly
+            return (
+                ('Informations', {
+                    'fields': ('name', 'is_active')
+                }),
+                ('Clé générée', {
+                    'fields': ('key',),
+                    'description': 'Clé API auto-générée (UUID4). Utilisez cette clé dans le header Authorization.'
+                }),
+                ('Statistiques d\'utilisation', {
+                    'fields': ('usage_count', 'created_at', 'last_used'),
+                    'classes': ('collapse',)
+                }),
+            )
+        else:  # Création : pas de champ 'key' (sera généré automatiquement)
+            return (
+                ('Informations', {
+                    'fields': ('name', 'is_active'),
+                    'description': 'Une clé API unique sera générée automatiquement après la sauvegarde.'
+                }),
+            )
+    
     def get_readonly_fields(self, request, obj=None):
-        """La clé est readonly après création"""
-        if obj:  # Edition
-            return self.readonly_fields
-        return ['created_at', 'last_used', 'usage_count']  # Création : on peut voir la clé complète
+        """
+        Tous les champs calculés/auto-générés sont readonly.
+        """
+        if obj:  # Edition : key, stats en readonly
+            return ['key', 'created_at', 'last_used', 'usage_count']
+        return []  # Création : aucun champ readonly (key n'est pas dans le form)
     
     class Meta:
         verbose_name = "Clé API"
