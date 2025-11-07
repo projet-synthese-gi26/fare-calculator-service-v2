@@ -74,6 +74,12 @@ class ApiKeyMiddleware:
             Response normale : Si validation OK ou path exempté
         """
         path = request.path
+
+        # Allow CORS preflight requests (OPTIONS) to pass without authentication.
+        # Browsers send OPTIONS preflight requests without Authorization header.
+        if request.method == 'OPTIONS':
+            logger.debug(f"OPTIONS request bypassed authentication for path {path}")
+            return self.get_response(request)
         
         # Vérifier exemptions
         for pattern in self.EXEMPT_PATHS:
