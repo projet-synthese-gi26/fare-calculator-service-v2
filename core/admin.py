@@ -53,6 +53,25 @@ class ApiKeyAdmin(admin.ModelAdmin):
             return ['key', 'created_at', 'last_used', 'usage_count']
         return []  # Création : aucun champ readonly (key n'est pas dans le form)
     
+    def save_model(self, request, obj, form, change):
+        """
+        Override pour afficher un message avec la clé générée après création.
+        """
+        super().save_model(request, obj, form, change)
+        if not change:  # Nouvelle création
+            from django.contrib import messages
+            messages.success(
+                request, 
+                format_html(
+                    '✅ Clé API créée avec succès !<br><br>'
+                    '<strong>Clé complète :</strong> <code style="background: #f5f5f5; padding: 5px; font-size: 14px;">{}</code><br><br>'
+                    '⚠️ <strong>Notez cette clé maintenant</strong>, elle ne sera plus affichée en entier.<br>'
+                    '📋 Utilisez-la dans vos requêtes : <code>Authorization: ApiKey {}</code>',
+                    obj.key,
+                    obj.key
+                )
+            )
+    
     class Meta:
         verbose_name = "Clé API"
         verbose_name_plural = "Clés API"

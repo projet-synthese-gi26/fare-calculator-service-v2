@@ -293,6 +293,9 @@ class EstimateView(APIView):
         type_zone = validated_data.get('type_zone')
         congestion_user = validated_data.get('congestion_user')
         
+        logger.info(f"[ESTIMATION REQUEST] Depart {depart_coords} -> Arrivee {arrivee_coords}")
+        logger.info(f"   Variables contextuelles: heure={heure}, meteo={meteo}, type_zone={type_zone}, congestion={congestion_user}")
+        
         # TODO : Équipe implémente logique hiérarchique complète
         
         # Étape 1 : Fallbacks variables si manquantes
@@ -325,23 +328,99 @@ class EstimateView(APIView):
         # )
         # return self._build_inconnu_prediction(estimations)
         
-        # Placeholder temporaire
+        # Placeholder temporaire avec calcul de distance réelle
+        logger.warning("[WARNING] Logique estimation hierarchique complete NON implementee - utilisation placeholder")
+        
+        # Calcul de distance et durée via Mapbox
+        distance_metres = None
+        duree_secondes = None
+        
+        try:
+            logger.info(f"🗺️ Appel Mapbox Directions API...")
+            logger.info(f"   Origin: ({depart_coords[1]:.6f}, {depart_coords[0]:.6f}) [lon, lat]")
+            logger.info(f"   Destination: ({arrivee_coords[1]:.6f}, {arrivee_coords[0]:.6f}) [lon, lat]")
+            
+            directions = self.mapbox_client.get_directions(
+                origin=(depart_coords[1], depart_coords[0]),  # Mapbox attend (lon, lat)
+                destination=(arrivee_coords[1], arrivee_coords[0]),
+                profile='driving-traffic'  # Inclut trafic en temps réel
+            )
+            
+            if directions and 'routes' in directions and len(directions['routes']) > 0:
+                route = directions['routes'][0]
+                distance_metres = route.get('distance', 0)
+                duree_secondes = route.get('duration', 0)
+                
+                logger.info(f"✅ Mapbox réponse reçue:")
+                logger.info(f"   Distance: {distance_metres:.0f} mètres ({distance_metres/1000:.2f} km)")
+                logger.info(f"   Durée: {duree_secondes:.0f} secondes ({duree_secondes/60:.1f} min)")
+            else:
+                logger.warning("⚠️ Mapbox réponse vide - pas de route trouvée")
+                raise ValueError("No route found")
+                
+        except Exception as e:
+            logger.error(f"❌ Erreur Mapbox Directions: {e}")
+            logger.info("📐 Fallback: calcul distance Haversine...")
+            
+            # Fallback: distance à vol d'oiseau * coefficient de sinuosité urbaine
+            from math import radians, cos, sin, asin, sqrt
+            
+            def haversine_distance(lat1, lon1, lat2, lon2):
+                """Distance en mètres entre deux points GPS."""
+                lon1, lat1, lon2, lat2 = map(radians, [lon1, lat1, lon2, lat2])
+                dlon = lon2 - lon1
+                dlat = lat2 - lat1
+                a = sin(dlat/2)**2 + cos(lat1) * cos(lat2) * sin(dlon/2)**2
+                c = 2 * asin(sqrt(a))
+                r = 6371000  # Rayon Terre en mètres
+                return c * r
+            
+            distance_vol_oiseau = haversine_distance(
+                depart_coords[0], depart_coords[1],
+                arrivee_coords[0], arrivee_coords[1]
+            )
+            distance_metres = distance_vol_oiseau * 1.3  # Coefficient sinuosité urbaine
+            duree_secondes = distance_metres / 8.33  # ~30 km/h vitesse moyenne urbaine
+            
+            logger.info(f"📐 Haversine distance: {distance_metres:.0f}m (~{distance_metres/1000:.2f} km)")
+            logger.info(f"⏱️ Durée estimée: {duree_secondes:.0f}s (~{duree_secondes/60:.1f} min)")
+        
+        # Calcul du prix basé sur la distance
         prix_standard = settings.PRIX_STANDARD_JOUR_CFA if heure in ['matin', 'apres-midi', 'soir'] else settings.PRIX_STANDARD_NUIT_CFA
+        
+        if distance_metres and distance_metres > 0:
+            # Formule simple: prix_base + (distance_km * tarif_km)
+            # Tarifs approximatifs Cameroun: ~200 CFA/km en zone urbaine
+            tarif_par_km = 200
+            prix_calcule = prix_standard + (distance_metres / 1000 * tarif_par_km)
+            
+            # Arrondir au multiple de 25 le plus proche (usage courant)
+            prix_calcule = round(prix_calcule / 25) * 25
+            
+            # S'assurer que c'est dans les classes de prix valides
+            prix_calcule = self._arrondir_prix_vers_classe(prix_calcule)
+            
+            logger.info(f"💰 Prix calculé: {prix_calcule} CFA (base {prix_standard} + {distance_metres/1000:.2f}km * {tarif_par_km} CFA/km)")
+        else:
+            prix_calcule = prix_standard
+            logger.info(f"💰 Prix standard utilisé: {prix_calcule} CFA (pas de distance calculée)")
         
         prediction_data = {
             'statut': 'inconnu',
-            'prix_moyen': prix_standard,
-            'prix_min': None,
-            'prix_max': None,
+            'prix_moyen': prix_calcule,
+            'prix_min': int(prix_calcule * 0.9),  # -10% marge basse
+            'prix_max': int(prix_calcule * 1.1),  # +10% marge haute
+            'distance': distance_metres,  # En mètres
+            'duree': duree_secondes,      # En secondes
             'estimations_supplementaires': {
-                'distance_based': prix_standard * 0.93,  # -7% estimation basse
-                'standardise': prix_standard,
-                'zone_based': prix_standard * 0.97  # -3% estimation intermédiaire
+                'distance_based': int(prix_calcule * 0.93),  # -7% estimation basse
+                'standardise': prix_calcule,
+                'zone_based': int(prix_calcule * 0.97)  # -3% estimation intermédiaire
             },
-            'fiabilite': 0.5,
+            'fiabilite': 0.6,  # Fiabilité moyenne (basé sur Mapbox mais pas ML)
             'message': (
-                "TODO équipe : Implémenter logique estimation hiérarchique complète. "
-                "Cette réponse est un placeholder."
+                "Estimation basée sur distance Mapbox (pas encore de ML). "
+                "Ajoutez votre prix réel après course pour enrichir la base de données."
             ),
             'details_trajet': {
                 'depart': validated_data.get('depart_label') or f"{depart_coords[0]:.4f}, {depart_coords[1]:.4f}",
@@ -350,10 +429,14 @@ class EstimateView(APIView):
                 'meteo': meteo
             },
             'suggestions': [
-                "Logique estimation non implémentée (coquille pour équipe).",
-                "Ajoutez votre prix après trajet pour enrichir la BD."
+                f"Distance calculée: {distance_metres/1000:.2f} km via Mapbox.",
+                f"Durée estimée: {duree_secondes/60:.1f} minutes.",
+                "Logique ML complète pas encore implémentée (aucune donnée en BD)."
             ]
         }
+        
+        logger.info(f"✅ Réponse finale: {prix_calcule} CFA pour {distance_metres/1000:.2f} km")
+        logger.info(f"   Statut: {prediction_data['statut']}, Fiabilité: {prediction_data['fiabilite']}")
         
         serializer = PredictionOutputSerializer(data=prediction_data)
         serializer.is_valid(raise_exception=True)

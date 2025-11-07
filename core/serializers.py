@@ -631,6 +631,16 @@ class PredictionOutputSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Prix maximal observé (si statut exact/similaire)."
     )
+    distance = serializers.FloatField(
+        allow_null=True,
+        required=False,
+        help_text="Distance du trajet en mètres (via Mapbox ou Haversine)."
+    )
+    duree = serializers.FloatField(
+        allow_null=True,
+        required=False,
+        help_text="Durée estimée du trajet en secondes."
+    )
     estimations_supplementaires = serializers.DictField(
         required=False,
         help_text="Estimations alternatives (distance-based, standardisé, zone, ML)."
