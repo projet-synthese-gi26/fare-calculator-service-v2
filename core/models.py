@@ -432,7 +432,8 @@ class ApiKey(models.Model):
         Note: Utilise F() expression pour éviter race conditions sur compteur.
         """
         from django.db.models import F
-        self.last_used = datetime.now()
+        from django.utils import timezone
+        self.last_used = timezone.now()
         self.usage_count = F('usage_count') + 1
         self.save(update_fields=['last_used', 'usage_count'])
         self.refresh_from_db()  # Refresh pour obtenir la nouvelle valeur après F()

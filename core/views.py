@@ -336,7 +336,7 @@ class EstimateView(APIView):
         duree_secondes = None
         
         try:
-            logger.info(f"🗺️ Appel Mapbox Directions API...")
+            logger.info("[MAPBOX] Appel Directions API...")
             logger.info(f"   Origin: ({depart_coords[1]:.6f}, {depart_coords[0]:.6f}) [lon, lat]")
             logger.info(f"   Destination: ({arrivee_coords[1]:.6f}, {arrivee_coords[0]:.6f}) [lon, lat]")
             
@@ -351,16 +351,16 @@ class EstimateView(APIView):
                 distance_metres = route.get('distance', 0)
                 duree_secondes = route.get('duration', 0)
                 
-                logger.info(f"✅ Mapbox réponse reçue:")
-                logger.info(f"   Distance: {distance_metres:.0f} mètres ({distance_metres/1000:.2f} km)")
-                logger.info(f"   Durée: {duree_secondes:.0f} secondes ({duree_secondes/60:.1f} min)")
+                logger.info("[SUCCESS] Mapbox reponse recue:")
+                logger.info(f"   Distance: {distance_metres:.0f} metres ({distance_metres/1000:.2f} km)")
+                logger.info(f"   Duree: {duree_secondes:.0f} secondes ({duree_secondes/60:.1f} min)")
             else:
-                logger.warning("⚠️ Mapbox réponse vide - pas de route trouvée")
+                logger.warning("[WARNING] Mapbox reponse vide - pas de route trouvee")
                 raise ValueError("No route found")
                 
         except Exception as e:
-            logger.error(f"❌ Erreur Mapbox Directions: {e}")
-            logger.info("📐 Fallback: calcul distance Haversine...")
+            logger.error(f"[ERROR] Erreur Mapbox Directions: {e}")
+            logger.info("[FALLBACK] Calcul distance Haversine...")
             
             # Fallback: distance à vol d'oiseau * coefficient de sinuosité urbaine
             from math import radians, cos, sin, asin, sqrt
@@ -382,8 +382,8 @@ class EstimateView(APIView):
             distance_metres = distance_vol_oiseau * 1.3  # Coefficient sinuosité urbaine
             duree_secondes = distance_metres / 8.33  # ~30 km/h vitesse moyenne urbaine
             
-            logger.info(f"📐 Haversine distance: {distance_metres:.0f}m (~{distance_metres/1000:.2f} km)")
-            logger.info(f"⏱️ Durée estimée: {duree_secondes:.0f}s (~{duree_secondes/60:.1f} min)")
+            logger.info(f"[FALLBACK] Haversine distance: {distance_metres:.0f}m (~{distance_metres/1000:.2f} km)")
+            logger.info(f"[DURATION] Duree estimee: {duree_secondes:.0f}s (~{duree_secondes/60:.1f} min)")
         
         # Calcul du prix basé sur la distance
         prix_standard = settings.PRIX_STANDARD_JOUR_CFA if heure in ['matin', 'apres-midi', 'soir'] else settings.PRIX_STANDARD_NUIT_CFA
@@ -394,16 +394,18 @@ class EstimateView(APIView):
             tarif_par_km = 200
             prix_calcule = prix_standard + (distance_metres / 1000 * tarif_par_km)
             
+            logger.info(f"[PRICE] Formule: {prix_standard} CFA (base) + {distance_metres/1000:.2f}km * {tarif_par_km} CFA/km = {prix_calcule:.0f} CFA")
+            
             # Arrondir au multiple de 25 le plus proche (usage courant)
             prix_calcule = round(prix_calcule / 25) * 25
+            logger.info(f"[PRICE] Apres arrondi x25: {prix_calcule} CFA")
             
             # S'assurer que c'est dans les classes de prix valides
             prix_calcule = self._arrondir_prix_vers_classe(prix_calcule)
-            
-            logger.info(f"💰 Prix calculé: {prix_calcule} CFA (base {prix_standard} + {distance_metres/1000:.2f}km * {tarif_par_km} CFA/km)")
+            logger.info(f"[PRICE] Classe finale: {prix_calcule} CFA")
         else:
             prix_calcule = prix_standard
-            logger.info(f"💰 Prix standard utilisé: {prix_calcule} CFA (pas de distance calculée)")
+            logger.info(f"[PRICE] Distance inconnue - prix standard: {prix_calcule} CFA")
         
         prediction_data = {
             'statut': 'inconnu',
@@ -419,8 +421,8 @@ class EstimateView(APIView):
             },
             'fiabilite': 0.6,  # Fiabilité moyenne (basé sur Mapbox mais pas ML)
             'message': (
-                "Estimation basée sur distance Mapbox (pas encore de ML). "
-                "Ajoutez votre prix réel après course pour enrichir la base de données."
+                "Estimation basee sur distance Mapbox (pas encore de ML). "
+                "Ajoutez votre prix reel apres course pour enrichir la base de donnees."
             ),
             'details_trajet': {
                 'depart': validated_data.get('depart_label') or f"{depart_coords[0]:.4f}, {depart_coords[1]:.4f}",
@@ -429,14 +431,14 @@ class EstimateView(APIView):
                 'meteo': meteo
             },
             'suggestions': [
-                f"Distance calculée: {distance_metres/1000:.2f} km via Mapbox.",
-                f"Durée estimée: {duree_secondes/60:.1f} minutes.",
-                "Logique ML complète pas encore implémentée (aucune donnée en BD)."
+                f"Distance calculee: {distance_metres/1000:.2f} km via Mapbox.",
+                f"Duree estimee: {duree_secondes/60:.1f} minutes.",
+                "Logique ML complete pas encore implementee (aucune donnee en BD)."
             ]
         }
         
-        logger.info(f"✅ Réponse finale: {prix_calcule} CFA pour {distance_metres/1000:.2f} km")
-        logger.info(f"   Statut: {prediction_data['statut']}, Fiabilité: {prediction_data['fiabilite']}")
+        logger.info(f"[SUCCESS] Reponse finale: {prix_calcule} CFA pour {distance_metres/1000:.2f} km")
+        logger.info(f"   Statut: {prediction_data['statut']}, Fiabilite: {prediction_data['fiabilite']}")
         
         serializer = PredictionOutputSerializer(data=prediction_data)
         serializer.is_valid(raise_exception=True)
