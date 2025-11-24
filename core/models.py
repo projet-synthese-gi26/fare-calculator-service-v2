@@ -35,7 +35,7 @@ class Point(models.Model):
         
     Exemples d'utilisation :
         - Filtrer trajets candidats : Trajet.objects.filter(point_depart__quartier="Ekounou")
-        - Prétraiter coords random → POI proche via Mapbox Map Matching/Search
+        - Prétraiter coords random -> POI proche via Mapbox Map Matching/Search
         
     Gestion manques :
         Si quartier/ville absents (rare avec Mapbox Geocoding), fallback sur coords seules
@@ -119,9 +119,9 @@ class Trajet(models.Model):
         prix (float) : Prix payé en CFA (collecté utilisateur, donnée cruciale)
         
     Champs Contextuels (optionnels avec fallbacks) :
-        heure (str) : Tranche horaire (matin/apres-midi/soir/nuit) ou null → auto via datetime.now()
-        meteo (int) : Code météo (0=soleil, 1=pluie légère, 2=pluie forte, 3=orage) ou null → OpenMeteo API
-        type_zone (int) : Type de zone (0=urbaine, 1=mixte, 2=rurale) ou null → déduit via Mapbox classes routes
+        heure (str) : Tranche horaire (matin/apres-midi/soir/nuit) ou null -> auto via datetime.now()
+        meteo (int) : Code météo (0=soleil, 1=pluie légère, 2=pluie forte, 3=orage) ou null -> OpenMeteo API
+        type_zone (int) : Type de zone (0=urbaine, 1=mixte, 2=rurale) ou null -> déduit via Mapbox classes routes
         congestion_user (int) : Niveau embouteillage selon user (1-10 scale, 1=fluide, 10=bloqué) ou null
         
     Champs Enrichis Mapbox (calculés avant stockage) :
@@ -137,9 +137,9 @@ class Trajet(models.Model):
             "depart": {"coords": [11.5021, 3.8547], "label": "Polytechnique Yaoundé"},  # ou juste nom recherché
             "arrivee": {"coords": [11.5174, 3.8667], "label": "Carrefour Ekounou"},
             "prix": 200,
-            "heure": "matin",  # ou null → auto
-            "meteo": 1,        # ou null → OpenMeteo
-            "type_zone": 0,    # ou null → déduit classes routes
+            "heure": "matin",  # ou null -> auto
+            "meteo": 1,        # ou null -> OpenMeteo
+            "type_zone": 0,    # ou null -> déduit classes routes
             "congestion_user": 5  # optionnel, échelle 1-10
         }
         
@@ -147,10 +147,10 @@ class Trajet(models.Model):
         - Si congestion Mapbox "unknown" : fallback heure/type_zone (urbaine=50 par défaut)
         - Si bearings manquants : sinuosité via Méthode 1 (distance/ligne droite)
         - Si météo null : appeler OpenMeteo avec coords, mapper à code 0-3
-        - Si heure null : datetime.now() → tranche
+        - Si heure null : datetime.now() -> tranche
         
     Workflow ajout :
-        1. Valider départ/arrivée (coords ou nom → convert via Nominatim si nom)
+        1. Valider départ/arrivée (coords ou nom -> convert via Nominatim si nom)
         2. Appeler Mapbox Directions API (driving-traffic, annotations=congestion,maxspeed,duration)
         3. Parser JSON : calculer sinuosité (3 méthodes, prioriser force virages), extraire congestion_moyen, classe_dominante
         4. Fallbacks si manques (logs warnings)
@@ -288,7 +288,7 @@ class Trajet(models.Model):
         ]
     
     def __str__(self):
-        return f"{self.point_depart.label} → {self.point_arrivee.label} ({self.prix} CFA)"
+        return f"{self.point_depart.label} -> {self.point_arrivee.label} ({self.prix} CFA)"
     
     def get_ligne_droite_distance(self):
         """
@@ -337,8 +337,8 @@ class Trajet(models.Model):
             
         Exemples :
             - Trajet exemple docs (5212m, 7 maneuvers, bearings avec Carrefour Vogt 181°) :
-                force_virages ≈ 100°/km → sinuosité ≈ 2.0
-            - Trajet ligne droite (autoroute) : force_virages ≈ 10°/km → sinuosité ≈ 1.1
+                force_virages ≈ 100°/km -> sinuosité ≈ 2.0
+            - Trajet ligne droite (autoroute) : force_virages ≈ 10°/km -> sinuosité ≈ 1.1
             
         Gestion manques Cameroun :
             Si >50% segments "unknown" bearings, log warning et utiliser Méthode 2 ou 1.

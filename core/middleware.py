@@ -32,7 +32,7 @@ class ApiKeyMiddleware:
     
     Workflow :
         1. Request arrive
-        2. Si path dans exemptions (admin, health), skip validation → process_request return None (continue)
+        2. Si path dans exemptions (admin, health), skip validation -> process_request return None (continue)
         3. Si path commence par /api/ :
             a. Extraire header Authorization
             b. Parser format "ApiKey <uuid>"

@@ -3,7 +3,7 @@ Client pour intégration OpenMeteo API - météo gratuite sans token.
 
 Utilisé pour :
 - Fallback météo si user n'indique pas lors ajout trajet
-- Conversion conditions météo → code 0-3 (soleil/pluie légère/pluie forte/orage)
+- Conversion conditions météo -> code 0-3 (soleil/pluie légère/pluie forte/orage)
 - Prévisions horaires pour estimation prix (si trajet futur)
 
 Configuration requise dans settings.py :
@@ -152,7 +152,7 @@ class OpenMeteoClient:
             - Si WMO inconnu (ex. 100+), log warning et return 0 (default soleil)
             - Si WMO nuageux (45-48 brouillard) sans pluie, return 0
         """
-        # Mapping WMO → Projet avec précipitations comme affinement
+        # Mapping WMO -> Projet avec précipitations comme affinement
         
         # Orages (priorité haute)
         if 95 <= wmo_code <= 99:

@@ -379,7 +379,7 @@ La réponse varie selon le **type de match** trouvé :
 
 ### GET /estimate/
 
-**Alternative GET** pour estimation (conversion query params → POST).
+**Alternative GET** pour estimation (conversion query params -> POST).
 
 #### Requête
 
@@ -1086,7 +1086,7 @@ response = requests.get(
 
 trajets = response.json()['results']
 for trajet in trajets:
-    print(f"{trajet['point_depart']['label']} → {trajet['point_arrivee']['label']} : {trajet['prix']} CFA")
+    print(f"{trajet['point_depart']['label']} -> {trajet['point_arrivee']['label']} : {trajet['prix']} CFA")
 ```
 
 ### Exemple 5 : Health check (sans auth)
@@ -1134,8 +1134,8 @@ curl http://localhost:8000/api/health/
 - Matrix API utilisée pour trajets similaires (1 req au lieu de N)
 
 ✅ **Fallbacks** :
-- Si Mapbox échoue → cercles Haversine
-- Si Nominatim échoue → labels génériques
+- Si Mapbox échoue -> cercles Haversine
+- Si Nominatim échoue -> labels génériques
 
 ---
 

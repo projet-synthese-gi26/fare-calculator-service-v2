@@ -2,7 +2,7 @@
 Client pour intégration Nominatim (OpenStreetMap Geocoding) - alternative gratuite.
 
 Utilisé pour :
-- Conversion nom/adresse → coordonnées (si user entre "Carrefour Ekounou" sans coords)
+- Conversion nom/adresse -> coordonnées (si user entre "Carrefour Ekounou" sans coords)
 - Fallback si Mapbox Search indisponible ou quota dépassé
 - Validation coords (reverse geocoding pour vérifier si coords sont au Cameroun)
 
@@ -153,7 +153,7 @@ class NominatimClient:
         zoom: int = 18
     ) -> Optional[Dict]:
         """
-        Reverse geocoding : coordonnées → adresse/lieu.
+        Reverse geocoding : coordonnées -> adresse/lieu.
         
         Args:
             lat, lon (float): Coordonnées décimales

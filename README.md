@@ -29,7 +29,7 @@ API REST complète pour **estimer intelligemment les prix de courses de taxi** a
 ### Caractéristiques Principales
 
 - ✅ **Estimation en temps réel** avec ajustements contextuels (heure, météo, congestion, sinuosité)
-- ✅ **4 niveaux de fallback** : Similarité étroite → élargie → variables différentes → ML
+- ✅ **4 niveaux de fallback** : Similarité étroite -> élargie -> variables différentes -> ML
 - ✅ **API RESTful** avec authentification par clé API et rate limiting
 - ✅ **Admin Django** complet pour gestion données et statistiques
 - ✅ **Documentation exhaustive** (API_DOC.md 73k tokens, docstrings détaillées)
@@ -479,7 +479,7 @@ La réponse varie selon le **type de match** trouvé :
 
 ### GET /estimate/
 
-**Alternative GET** pour estimation (conversion query params → POST).
+**Alternative GET** pour estimation (conversion query params -> POST).
 
 #### Requête
 
@@ -1186,7 +1186,7 @@ response = requests.get(
 
 trajets = response.json()['results']
 for trajet in trajets:
-    print(f"{trajet['point_depart']['label']} → {trajet['point_arrivee']['label']} : {trajet['prix']} CFA")
+    print(f"{trajet['point_depart']['label']} -> {trajet['point_arrivee']['label']} : {trajet['prix']} CFA")
 ```
 
 ### Exemple 5 : Health check (sans auth)
@@ -1234,8 +1234,8 @@ curl http://localhost:8000/api/health/
 - Matrix API utilisée pour trajets similaires (1 req au lieu de N)
 
 ✅ **Fallbacks** :
-- Si Mapbox échoue → cercles Haversine
-- Si Nominatim échoue → labels génériques
+- Si Mapbox échoue -> cercles Haversine
+- Si Nominatim échoue -> labels génériques
 
 ---
 
@@ -1272,8 +1272,8 @@ PRIX_CLASSES_CFA = [
 
 1. **Fonction `check_similar_match()`** : 
    - Tous prix retournés (prix_moyen, prix_min, prix_max) doivent être arrondis aux classes valides
-   - Helper `_arrondir_prix_vers_classe(prix)` créée pour mapper float → classe proche
-   - Ex: 247.8 CFA → 250 CFA, 312.5 → 300 CFA
+   - Helper `_arrondir_prix_vers_classe(prix)` créée pour mapper float -> classe proche
+   - Ex: 247.8 CFA -> 250 CFA, 312.5 -> 300 CFA
 
 2. **Fonction `predict_prix_ml()`** :
    - Modèle = **Classification Multiclasse** (18 classes), PAS régression
@@ -1282,7 +1282,7 @@ PRIX_CLASSES_CFA = [
 
 3. **Fonction `fallback_inconnu()`** :
    - Toutes 4 estimations doivent retourner `int` (classes valides)
-   - Même estimation distance-based ou zone-based → arrondir avec `_arrondir_prix_vers_classe()`
+   - Même estimation distance-based ou zone-based -> arrondir avec `_arrondir_prix_vers_classe()`
 
 ### ⚠️ IMPORTANT : Architecture Correcte du Système de Similarité
 
@@ -1292,15 +1292,15 @@ PRIX_CLASSES_CFA = [
 1. check_similar_match()        ❌ À IMPLÉMENTER - FONCTION CENTRALE
    │
    ├─ NIVEAU 1 : Périmètre ÉTROIT (isochrone 2min / cercle 50m fallback)
-   │   └─ Match trouvé → Prix DIRECT sans ajustement (fiabilité 0.9-0.95)
+   │   └─ Match trouvé -> Prix DIRECT sans ajustement (fiabilité 0.9-0.95)
    │
    ├─ NIVEAU 2 : Périmètre ÉLARGI (isochrone 5min / cercle 150m fallback)
-   │   └─ Match trouvé → Prix AJUSTÉ (+distance extra, congestion, sinuosité)
+   │   └─ Match trouvé -> Prix AJUSTÉ (+distance extra, congestion, sinuosité)
    │
    ├─ NIVEAU 3 : Fallback VARIABLES (ignorer heure/météo exactes)
-   │   └─ Match trouvé avec heure/météo différentes → Prix ajusté + note
+   │   └─ Match trouvé avec heure/météo différentes -> Prix ajusté + note
    │
-   └─ Aucun match → Passer à fallback_inconnu()
+   └─ Aucun match -> Passer à fallback_inconnu()
    
 2. fallback_inconnu()           ❌ À IMPLÉMENTER - ESTIMATIONS MULTIPLES
    └─ Retourne 4 estimations (distance-based, standardisé, zone-based, ML)
@@ -1318,7 +1318,7 @@ PRIX_CLASSES_CFA = [
 
 ### Fonction 1 (CENTRALE) : `check_similar_match()`
 
-**Objectif** : Rechercher trajets similaires avec 3 niveaux de périmètres progressifs (étroit→élargi→variables différentes). Fonction CENTRALE qui remplace l'idée erronée de `check_exact_match()` séparé.
+**Objectif** : Rechercher trajets similaires avec 3 niveaux de périmètres progressifs (étroit->élargi->variables différentes). Fonction CENTRALE qui remplace l'idée erronée de `check_exact_match()` séparé.
 
 **Localisation** : `core/views.py`, lignes ~400-700 (voir docstring détaillée)
 
@@ -1459,7 +1459,7 @@ for trajet in trajets_candidats:
                 trajets_niveau1.append(trajet)
 
 if trajets_niveau1:
-    # MATCH ÉTROIT TROUVÉ → Retourner prix DIRECT sans ajustement
+    # MATCH ÉTROIT TROUVÉ -> Retourner prix DIRECT sans ajustement
     prix_moyen = sum(t.prix for t in trajets_niveau1) / len(trajets_niveau1)
     prix_min = min(t.prix for t in trajets_niveau1)
     prix_max = max(t.prix for t in trajets_niveau1)
@@ -1557,7 +1557,7 @@ for trajet in trajets_candidats:
         trajets_niveau2.append(trajet)
 
 if trajets_niveau2:
-    # MATCH ÉLARGI TROUVÉ → Calculer ajustements prix
+    # MATCH ÉLARGI TROUVÉ -> Calculer ajustements prix
     
     # Calculer distances extra via Mapbox Matrix API
     coords_depart_candidats = [depart_coords] + [
@@ -1613,7 +1613,7 @@ if trajets_niveau2:
         # Ajustement 2 : Congestion différente (si user fournit congestion_user)
         ajust_congestion_pourcent = 0
         if congestion_user and trajet.congestion_moyen:
-            delta_congestion = (congestion_user * 10) - trajet.congestion_moyen  # user 1-10 → 0-100
+            delta_congestion = (congestion_user * 10) - trajet.congestion_moyen  # user 1-10 -> 0-100
             if delta_congestion > 20:  # Si >20 points de congestion extra
                 ajust_congestion_pourcent = settings.ADJUSTMENT_CONGESTION_POURCENT  # +10%
         
@@ -1718,7 +1718,7 @@ if trajets_variables_diff:
     ajust_heure_cfa = 0
     note_heure = None
     if heure and trajet_ref.heure and heure != trajet_ref.heure:
-        # Jour → Nuit : +50 CFA
+        # Jour -> Nuit : +50 CFA
         if heure in ['matin', 'apres-midi', 'soir'] and trajet_ref.heure == 'nuit':
             ajust_heure_cfa = -settings.ADJUSTMENT_HEURE_JOUR_NUIT_CFA  # -50 CFA (BD est nuit, demandé jour)
             note_heure = f"Prix basé sur trajets de nuit (−50 CFA vs {heure} demandé)"
@@ -1729,7 +1729,7 @@ if trajets_variables_diff:
     ajust_meteo_cfa = 0
     note_meteo = None
     if meteo is not None and trajet_ref.meteo is not None and meteo != trajet_ref.meteo:
-        # Soleil → Pluie : +10%
+        # Soleil -> Pluie : +10%
         if meteo > trajet_ref.meteo:  # Demandé plus pluvieux que BD
             ajust_meteo_cfa = prix_base * (settings.ADJUSTMENT_METEO_SOLEIL_PLUIE_POURCENT / 100)  # +10%
             note_meteo = f"Ajustement +10% (BD soleil, demandé pluie)"
@@ -1756,7 +1756,7 @@ if trajets_variables_diff:
         ]
     }
 
-# Si aucun match niveau 3 non plus → Return None (passage à fallback_inconnu)
+# Si aucun match niveau 3 non plus -> Return None (passage à fallback_inconnu)
 return None
 ```
 
@@ -1922,7 +1922,7 @@ settings.SIMILARITY_METEO_TOLERANCE  # 1 (accepter meteo ±1)
 depart_coords = (3.8547, 11.5021)  # Polytechnique
 arrivee_coords = (3.8667, 11.5174)  # Ekounou
 
-# Ajouter trajet BD à 500m : (3.8550, 11.5025) → (3.8670, 11.5180)
+# Ajouter trajet BD à 500m : (3.8550, 11.5025) -> (3.8670, 11.5180)
 # check_similar_match() devrait trouver ce trajet et ajuster prix
 
 # Test 2 : Aucun trajet similaire dans rayon 10 min
@@ -2312,7 +2312,7 @@ features_scaled = scaler.transform(features)
 # Prédiction de la classe (index 0-17)
 classe_idx = model.predict(features_scaled)[0]
 
-# Mapper index → prix réel
+# Mapper index -> prix réel
 prix_predit = prix_classes[classe_idx]
 
 # Optionnel : Récupérer probabilités pour toutes les classes

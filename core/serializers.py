@@ -11,10 +11,10 @@ alizers :
 - PredictionOutputSerializer : DTO non-persistant pour réponses estimation (statut, prix, message)
 
 Gestion fallbacks :
-- Coords manquantes → conversion nom via Nominatim
-- Météo null → OpenMeteo API
-- Heure null → datetime.now() → tranche
-- Type zone null → déduit classes routes Mapbox
+- Coords manquantes -> conversion nom via Nominatim
+- Météo null -> OpenMeteo API
+- Heure null -> datetime.now() -> tranche
+- Type zone null -> déduit classes routes Mapbox
 """
 
 from rest_framework import serializers
@@ -122,9 +122,9 @@ class TrajetSerializer(serializers.ModelSerializer):
     Workflow création complexe :
         1. Valider inputs (points départ/arrivée, prix obligatoires)
         2. Appliquer fallbacks variables optionnelles :
-            - Heure null → datetime.now() → tranche (matin/après-midi/soir/nuit)
-            - Météo null → OpenMeteo API sur coords départ (ou moyenne départ/arrivée)
-            - Type zone null → déduit après appel Mapbox (classes routes dominante)
+            - Heure null -> datetime.now() -> tranche (matin/après-midi/soir/nuit)
+            - Météo null -> OpenMeteo API sur coords départ (ou moyenne départ/arrivée)
+            - Type zone null -> déduit après appel Mapbox (classes routes dominante)
         3. Appeler Mapbox Directions API (driving-traffic, annotations complètes)
         4. Parser JSON Mapbox pour extraire :
             - Distance, durée (validation cohérence avec input si fourni)
@@ -216,7 +216,7 @@ class TrajetSerializer(serializers.ModelSerializer):
                     "Les points de départ et d'arrivée doivent être différents."
                 )
         
-        # Fallback heure : si null, utiliser datetime.now() → tranche
+        # Fallback heure : si null, utiliser datetime.now() -> tranche
         if attrs.get('heure') is None:
             now = timezone.now()
             attrs['heure'] = determiner_tranche_horaire(now)
@@ -275,7 +275,7 @@ class TrajetSerializer(serializers.ModelSerializer):
             [point_arrivee.coords_longitude, point_arrivee.coords_latitude]
         ]
         
-        logger.info(f"Appel Mapbox Directions : {point_depart.label} → {point_arrivee.label}")
+        logger.info(f"Appel Mapbox Directions : {point_depart.label} -> {point_arrivee.label}")
         mapbox_data = mapbox_client.get_directions(
             coordinates=coords,
             profile='driving-traffic',
@@ -504,7 +504,7 @@ class EstimateInputSerializer(serializers.Serializer):
             
             return {'coords': [lat, lon], 'label': label}
         
-        # Cas 2 : str (nom POI) → convertir via Nominatim
+        # Cas 2 : str (nom POI) -> convertir via Nominatim
         elif isinstance(value, str):
             nom = value.strip()
             if not nom:
@@ -512,7 +512,7 @@ class EstimateInputSerializer(serializers.Serializer):
             
             logger.info(f"Conversion nom '{nom}' vers coords via Nominatim...")
             
-            # Appeler Nominatim pour conversion nom → coords
+            # Appeler Nominatim pour conversion nom -> coords
             coords = nominatim_client.search_place(
                 query=nom,
                 country_codes='cm',

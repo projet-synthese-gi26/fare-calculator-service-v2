@@ -74,18 +74,21 @@ class PointViewSet(viewsets.ReadOnlyModelViewSet):
     ordering = ['-created_at']
 
 
-class TrajetViewSet(viewsets.ReadOnlyModelViewSet):
+class TrajetViewSet(viewsets.ModelViewSet):
     """
-    ViewSet lecture seule pour Trajets.
+    ViewSet CRUD complet pour Trajets.
     
     Endpoints :
         GET /api/trajets/ : Liste tous trajets
+        POST /api/trajets/ : Créer nouveau trajet
         GET /api/trajets/{id}/ : Détail trajet
+        PUT/PATCH /api/trajets/{id}/ : Modifier trajet
+        DELETE /api/trajets/{id}/ : Supprimer trajet
         GET /api/trajets/?heure=matin : Filtrage par heure
         GET /api/trajets/?meteo=1 : Filtrage par météo
         GET /api/trajets/?type_zone=0 : Filtrage par type zone
         
-    Utilisé admin/debug et analyse données. Création via AddTrajetView.
+    Utilisé pour contribution communautaire (POST depuis frontend) et admin/debug.
     """
     queryset = Trajet.objects.all().select_related('point_depart', 'point_arrivee')
     serializer_class = TrajetSerializer
@@ -142,29 +145,29 @@ class EstimateView(APIView):
         GET avec query params (?depart_lat=X&depart_lon=Y&arrivee_lat=Z...)
         
     Workflow estimation hiérarchique :
-        1. Valider inputs via EstimateInputSerializer (conversion nom→coords si nécessaire)
+        1. Valider inputs via EstimateInputSerializer (conversion nom->coords si nécessaire)
         2. Appliquer fallbacks variables optionnelles (heure, météo, type_zone) si manquantes
         3. Filtrer candidats par quartiers départ/arrivée via reverse-geocoding (optimisation)
         4. check_similar_match : Recherche trajets similaires avec 2 périmètres
             a) Périmètre ÉTROIT (isochrone 2min / cercle 50m fallback)
                - Vérifier points départ/arrivée dans isochrones Mapbox 2 minutes
-               - Si isochrones échouent (routes manquantes Cameroun) → cercles Haversine 50m
+               - Si isochrones échouent (routes manquantes Cameroun) -> cercles Haversine 50m
                - Si match + distance ±10% : PRIX DIRECT sans ajustement (fiabilité 0.9-0.95)
                - Moyenne/min/max des prix trouvés
             b) Périmètre ÉLARGI (isochrone 5min / cercle 150m fallback)
                - Mêmes vérifications avec périmètres plus larges
                - Si match : Calculer ajustements via Mapbox Matrix API
-                 * Distance extra (Matrix pour distance réelle départ→départ_bd, arrivée→arrivée_bd)
+                 * Distance extra (Matrix pour distance réelle départ->départ_bd, arrivée->arrivée_bd)
                  * Ajustement prix : +50 CFA par km extra (configurable settings.ADJUSTMENT_PRIX_PAR_KM)
                  * Congestion différente : +10% si user signale embouteillage (congestion_user>7)
                  * Sinuosité différente : +20 CFA si indice>1.5 (routes tortueuses)
                - PRIX AJUSTÉ (fiabilité 0.7-0.8)
             c) Fallback VARIABLES (si pas de match avec heure/météo exactes)
-               - Chercher même périmètre mais avec heure différente (ex : matin→nuit)
-               - Chercher avec météo différente (ex : soleil→pluie)
+               - Chercher même périmètre mais avec heure différente (ex : matin->nuit)
+               - Chercher avec météo différente (ex : soleil->pluie)
                - Appliquer ajustements standards :
-                 * Heure diff : +50 CFA si jour→nuit, -30 CFA si nuit→jour
-                 * Météo diff : +10% si soleil→pluie, -5% si pluie→soleil
+                 * Heure diff : +50 CFA si jour->nuit, -30 CFA si nuit->jour
+                 * Météo diff : +10% si soleil->pluie, -5% si pluie->soleil
                - Noter dans réponse : "Prix basé sur trajets à heure différente (nuit)"
         5. fallback_inconnu : Si aucun trajet similaire dans périmètres
             - Estimation distance-based : Chercher distances similaires ±20%, extrapoler prix
@@ -511,7 +514,7 @@ class EstimateView(APIView):
             prix : Prix calculé (float, peut être 247.8 ou 312.5 par exemple)
             
         Returns:
-            int : Classe de prix la plus proche (ex: 247.8 → 250, 312.5 → 300)
+            int : Classe de prix la plus proche (ex: 247.8 -> 250, 312.5 -> 300)
             
         Exemples:
             >>> self._arrondir_prix_vers_classe(247.8)
@@ -546,31 +549,31 @@ class EstimateView(APIView):
         congestion_user: Optional[int]
     ) -> Optional[Dict]:
         """
-        Recherche trajets similaires avec hiérarchie correcte : périmètres (étroit→élargi) × variables (exactes→différentes).
+        Recherche trajets similaires avec hiérarchie correcte : périmètres (étroit->élargi) × variables (exactes->différentes).
         
         **LOGIQUE CENTRALE CORRIGÉE** : 
         Système de recherche avec 2 DIMENSIONS :
-        - **DIMENSION 1** : Périmètres géographiques (ÉTROIT 2min/50m → ÉLARGI 5min/150m)
-        - **DIMENSION 2** : Variables contextuelles (EXACTES heure/météo → DIFFÉRENTES)
+        - **DIMENSION 1** : Périmètres géographiques (ÉTROIT 2min/50m -> ÉLARGI 5min/150m)
+        - **DIMENSION 2** : Variables contextuelles (EXACTES heure/météo -> DIFFÉRENTES)
         
         **HIÉRARCHIE VRAIE** (du plus précis au moins précis) :
         
         1. ✅ **PÉRIMÈTRE ÉTROIT + Variables EXACTES** (inclut matchs EXACTS si coords identiques)
-           → Si trouvé : Prix DIRECT sans ajustement distance (fiabilité 0.95)
+           -> Si trouvé : Prix DIRECT sans ajustement distance (fiabilité 0.95)
            
         2. ✅ **PÉRIMÈTRE ÉTROIT + Variables DIFFÉRENTES** (heure/météo différentes)
-           → Si trouvé : Prix avec ajustement heure/météo + NOTE dans réponse (fiabilité 0.85)
-           → Ex : "Polytech-Kennedy nuit sans pluie" trouve "Polytech-Kennedy jour avec pluie"
-           → Note : "Prix basé sur trajets de jour (+50 CFA vs nuit), avec pluie (-5%)"
+           -> Si trouvé : Prix avec ajustement heure/météo + NOTE dans réponse (fiabilité 0.85)
+           -> Ex : "Polytech-Kennedy nuit sans pluie" trouve "Polytech-Kennedy jour avec pluie"
+           -> Note : "Prix basé sur trajets de jour (+50 CFA vs nuit), avec pluie (-5%)"
            
         3. ✅ **PÉRIMÈTRE ÉLARGI + Variables EXACTES**
-           → Si trouvé : Prix avec ajustement DISTANCE uniquement (fiabilité 0.75)
-           → Ajustement distance bidirectionnel : +50 CFA/km si plus long, -50 CFA/km si plus court
+           -> Si trouvé : Prix avec ajustement DISTANCE uniquement (fiabilité 0.75)
+           -> Ajustement distance bidirectionnel : +50 CFA/km si plus long, -50 CFA/km si plus court
            
         4. ✅ **PÉRIMÈTRE ÉLARGI + Variables DIFFÉRENTES**
-           → Si trouvé : Prix avec ajustements DISTANCE + heure/météo (fiabilité 0.65)
+           -> Si trouvé : Prix avec ajustements DISTANCE + heure/météo (fiabilité 0.65)
            
-        5. ❌ **AUCUN MATCH** → Return None → Passage fallback_inconnu (modèle ML)
+        5. ❌ **AUCUN MATCH** -> Return None -> Passage fallback_inconnu (modèle ML)
         
         **IMPORTANT** : 
         - **Ajustement CONGESTION** : N'est PAS fait ici ! Se fait À LA FIN de toute prédiction
@@ -601,9 +604,9 @@ class EstimateView(APIView):
                b) **IGNORER filtres heure/météo** (accepter toutes valeurs)
                c) Vérifier containment + distance ±10%
                d) Si match : Calculer ajustements heure/météo :
-                  - Heure différente : +50 CFA si jour→nuit, -30 CFA si nuit→jour
+                  - Heure différente : +50 CFA si jour->nuit, -30 CFA si nuit->jour
                     (settings.ADJUSTMENT_HEURE_JOUR_NUIT_CFA)
-                  - Météo différente : +10% si soleil→pluie, -5% si pluie→soleil
+                  - Météo différente : +10% si soleil->pluie, -5% si pluie->soleil
                     (settings.ADJUSTMENT_METEO_SOLEIL_PLUIE_POURCENT)
                e) **Ajouter NOTE dans réponse** : 
                   "Prix basé sur trajets à heure différente (jour vs nuit demandée, +50 CFA)"
@@ -618,8 +621,8 @@ class EstimateView(APIView):
                   - **Ajustement bidirectionnel** :
                     * Si distance_extra > 0 : +settings.ADJUSTMENT_PRIX_PAR_100M par 100m
                     * Si distance_extra < 0 : -settings.ADJUSTMENT_PRIX_PAR_100M par 100m
-                  - Ex : Trajet demandé 5.2km, BD 5.4km → -200m → -10 CFA (réduit prix)
-                  - Ex : Trajet demandé 5.6km, BD 5.4km → +200m → +10 CFA (augmente prix)
+                  - Ex : Trajet demandé 5.2km, BD 5.4km -> -200m -> -10 CFA (réduit prix)
+                  - Ex : Trajet demandé 5.6km, BD 5.4km -> +200m -> +10 CFA (augmente prix)
                e) Retourner statut='similaire_elargi', fiabilité 0.75
             
             5. NIVEAU 2B : PÉRIMÈTRE ÉLARGI + Variables DIFFÉRENTES
@@ -630,7 +633,7 @@ class EstimateView(APIView):
                e) **NOTE dans réponse** avec détails variables différentes
                f) Retourner statut='similaire_elargi_variables_diff', fiabilité 0.65
             
-            6. AUCUN MATCH → Return None (passage à fallback_inconnu)
+            6. AUCUN MATCH -> Return None (passage à fallback_inconnu)
         
         Args:
             depart_coords, arrivee_coords : [lat, lon] nouveau trajet
@@ -666,7 +669,7 @@ class EstimateView(APIView):
             
         Exemples :
             # Exemple 1 : Match EXACT (périmètre étroit + variables exactes)
-            >>> # Polytech→Kennedy matin sans pluie TROUVE Polytech→Kennedy matin sans pluie (coords identiques)
+            >>> # Polytech->Kennedy matin sans pluie TROUVE Polytech->Kennedy matin sans pluie (coords identiques)
             >>> result = self.check_similar_match([3.8547, 11.5021], [3.8667, 11.5174], 5200, 'matin', 0, 0, None)
             >>> print(result)
             {
@@ -680,7 +683,7 @@ class EstimateView(APIView):
             }
             
             # Exemple 2 : Périmètre étroit + variables DIFFÉRENTES
-            >>> # Polytech→Kennedy matin soleil TROUVE Polytech→Kennedy jour pluie
+            >>> # Polytech->Kennedy matin soleil TROUVE Polytech->Kennedy jour pluie
             >>> result = self.check_similar_match([3.8547, 11.5021], [3.8667, 11.5174], 5200, 'matin', 0, 0, None)
             >>> print(result)
             {
@@ -689,13 +692,13 @@ class EstimateView(APIView):
                 'fiabilite': 0.85,
                 'message': 'Estimation depuis 5 trajets proches à heure/météo différentes.',
                 'ajustements_appliques': {
-                    'ajustement_meteo_pourcent': -5,  # BD pluie, demandé soleil → -5%
+                    'ajustement_meteo_pourcent': -5,  # BD pluie, demandé soleil -> -5%
                     'note_variables': 'Prix basé sur trajets avec pluie (−5% vs soleil demandé)'
                 }
             }
             
             # Exemple 3 : Périmètre élargi + variables exactes (ajustement distance)
-            >>> # Point 200m de Polytech → Point 150m de Kennedy (5.4km vs 5.2km BD)
+            >>> # Point 200m de Polytech -> Point 150m de Kennedy (5.4km vs 5.2km BD)
             >>> result = self.check_similar_match([3.8550, 11.5025], [3.8670, 11.5180], 5400, 'matin', 0, 0, None)
             >>> print(result)
             {
@@ -710,7 +713,7 @@ class EstimateView(APIView):
             }
             
             # Exemple 4 : Périmètre élargi + distance PLUS COURTE (réduit prix)
-            >>> # Trajet demandé 5.0km, BD 5.4km → -400m → -20 CFA
+            >>> # Trajet demandé 5.0km, BD 5.4km -> -400m -> -20 CFA
             >>> result = self.check_similar_match([3.8545, 11.5020], [3.8665, 11.5170], 5000, 'matin', 0, 0, None)
             >>> print(result)
             {
@@ -749,7 +752,7 @@ class EstimateView(APIView):
            - Pour estimations SIMILARITY (cette fonction) : Appliqué À LA FIN dans _process_estimate()
              via settings.ADJUSTMENT_CONGESTION_POURCENT (ex: +10% par tranche 20 pts congestion).
            - Pour estimations ML : La congestion est déjà une FEATURE du modèle (Trajet.congestion_moyen
-             et congestion_user) → PAS de double ajustement post-prédiction.
+             et congestion_user) -> PAS de double ajustement post-prédiction.
            - Cette fonction retourne seulement statut pour indiquer si ML ou similarity a été utilisé.
         
         2. Congestion/sinuosité en BD : 
@@ -792,14 +795,14 @@ class EstimateView(APIView):
         
         # Log si filtrage échoué
         if not query_filters:
-            logger.warning(f"Filtrage géographique impossible pour {depart_coords} → {arrivee_coords}. Query full BD.")
+            logger.warning(f"Filtrage geographique impossible pour {depart_coords} -> {arrivee_coords}. Query full BD.")
         
         # Si <2 trajets après filtrage, skip calculs coûteux
         if candidats.count() < 2:
             logger.info(f"Moins de 2 candidats après filtrage géo. Return None.")
             return None
         
-        # 2. HIÉRARCHIE 2D : Périmètres (ÉTROIT→ÉLARGI) × Variables (EXACTES→DIFFÉRENTES)
+        # 2. HIÉRARCHIE 2D : Périmètres (ÉTROIT->ÉLARGI) × Variables (EXACTES->DIFFÉRENTES)
         
         # Niveau 1A : PÉRIMÈTRE ÉTROIT + Variables EXACTES
         result = self._check_perimetre_level(
@@ -936,7 +939,7 @@ class EstimateView(APIView):
             )
             
             if iso_depart and iso_arrivee:
-                # Convertir GeoJSON → Shapely Polygon
+                # Convertir GeoJSON -> Shapely Polygon
                 poly_depart = shape(iso_depart['features'][0]['geometry'])
                 poly_arrivee = shape(iso_arrivee['features'][0]['geometry'])
                 use_isochrones = True
@@ -1025,8 +1028,8 @@ class EstimateView(APIView):
         if not variables_exactes:
             # Identifier différence heure
             if heure and trajets_match[0].heure != heure:
-                # Supposons BD a "jour" et user demande "nuit" → +50 CFA
-                # Ou inverse → -30 CFA (exemple simplifié)
+                # Supposons BD a "jour" et user demande "nuit" -> +50 CFA
+                # Ou inverse -> -30 CFA (exemple simplifié)
                 # TODO : Logique plus précise selon combinaisons
                 ajust_heure = settings.ADJUSTMENT_HEURE_JOUR_NUIT_CFA if heure == 'nuit' else -30
                 prix_moyen += ajust_heure
@@ -1035,8 +1038,8 @@ class EstimateView(APIView):
             
             # Identifier différence météo
             if meteo is not None and trajets_match[0].meteo != meteo:
-                # Ex: BD pluie (1), demandé soleil (0) → -5%
-                # Ou BD soleil (0), demandé pluie (1) → +10%
+                # Ex: BD pluie (1), demandé soleil (0) -> -5%
+                # Ou BD soleil (0), demandé pluie (1) -> +10%
                 pourcent_meteo = settings.ADJUSTMENT_METEO_SOLEIL_PLUIE_POURCENT
                 if meteo > trajets_match[0].meteo:  # Demandé pire météo
                     ajust_meteo_pourcent = pourcent_meteo
@@ -1196,16 +1199,16 @@ class EstimateView(APIView):
         Workflow :
             1. Charger modèle classifier depuis 'ml_models/prix_classifier.pkl' via joblib
             2. Si modèle n'existe pas (pas encore entraîné), return None
-            3. Préparer features : encoder heure (mapping str→int), gérer manques (fillna)
+            3. Préparer features : encoder heure (mapping str->int), gérer manques (fillna)
             4. Normaliser features (StandardScaler sauvegardé avec modèle)
             5. Prédire classe : classe_idx = model.predict(features_scaled)[0]
-            6. Mapper index → prix réel : prix = PRIX_CLASSES_CFA[classe_idx]
+            6. Mapper index -> prix réel : prix = PRIX_CLASSES_CFA[classe_idx]
             7. Return prix (int, pas float !)
             
         Préparation target pour entraînement (via train_ml_model) :
             1. Pour chaque trajet BD, mapper prix réel vers classe la plus proche
-               Ex: 275 CFA → classe 300 (plus proche que 250)
-            2. Encoder classes : [100, 150, ...] → indices [0, 1, 2, ..., 17]
+               Ex: 275 CFA -> classe 300 (plus proche que 250)
+            2. Encoder classes : [100, 150, ...] -> indices [0, 1, 2, ..., 17]
             3. Entraîner classifier avec y = indices classes
             4. Sauvegarder mapping classes dans prix_classes.json
             
@@ -1257,7 +1260,7 @@ class EstimateView(APIView):
         # TODO : ÉQUIPE IMPLÉMENTE LOGIQUE CLASSIFICATION COMPLÈTE
         # TODO : Charger classifier (prix_classifier.pkl) + scaler + prix_classes.json
         # TODO : Encoder features, normaliser, prédire classe (index 0-17)
-        # TODO : Mapper index → prix réel (PRIX_CLASSES_CFA[classe_idx])
+        # TODO : Mapper index -> prix réel (PRIX_CLASSES_CFA[classe_idx])
         # TODO : Gérer exceptions (return None si erreur)
         pass
     

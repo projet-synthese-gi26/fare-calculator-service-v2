@@ -32,10 +32,10 @@ def haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> fl
         lon2 (float): Longitude point 2
         
     Returns:
-        float: Distance en mètres (conversion km → m pour cohérence avec distances Mapbox)
+        float: Distance en mètres (conversion km -> m pour cohérence avec distances Mapbox)
         
     Exemples :
-        >>> haversine_distance(3.8547, 11.5021, 3.8667, 11.5174)  # Polytechnique → Ekounou
+        >>> haversine_distance(3.8547, 11.5021, 3.8667, 11.5174)  # Polytechnique -> Ekounou
         ~2100.0  # mètres (approximation, itinéraire réel Mapbox ~5200m car routes sinueuses)
         
         >>> haversine_distance(0.0, 0.0, 0.0, 1.0)  # 1 degré longitude à équateur
@@ -62,7 +62,7 @@ def haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> fl
     # Rayon Terre en mètres
     R = 6371000
     
-    # Conversion degrés → radians
+    # Conversion degrés -> radians
     lat1_rad = math.radians(lat1)
     lat2_rad = math.radians(lat2)
     delta_lat = math.radians(lat2 - lat1)
@@ -95,7 +95,7 @@ def calculer_sinuosite_base(distance_route: float, lat_depart: float, lon_depart
         
     Exemples :
         >>> calculer_sinuosite_base(5212, 3.8547, 11.5021, 3.8667, 11.5174)
-        ~2.5  # Route 5.2km pour ligne droite ~2.1km → sinueux (Yaoundé avec détours)
+        ~2.5  # Route 5.2km pour ligne droite ~2.1km -> sinueux (Yaoundé avec détours)
         
         >>> calculer_sinuosite_base(2500, 3.85, 11.50, 3.87, 11.52)
         ~1.1  # Route presque directe (autoroute hypothétique)
@@ -220,7 +220,7 @@ def calculer_force_virages(maneuvers: List[Dict], distance_total_m: float) -> Op
     Calcul angle minimal :
         Différence entre bearing_before et bearing_after, normalisée pour obtenir angle minimal :
         diff = abs(bearing_after - bearing_before)
-        angle = min(diff, 360 - diff)  # Ex: 10° et 350° → angle = 20° (pas 340°)
+        angle = min(diff, 360 - diff)  # Ex: 10° et 350° -> angle = 20° (pas 340°)
         
     Exemples :
         >>> maneuvers_force = [
@@ -331,7 +331,7 @@ def normaliser_angle_virage(bearing_before: float, bearing_after: float) -> floa
     """
     Calcule l'angle minimal entre deux bearings (0-360°).
     
-    Helper pour calculer_force_virages. Gère le wrap-around circulaire (ex. 350° → 10° = 20°).
+    Helper pour calculer_force_virages. Gère le wrap-around circulaire (ex. 350° -> 10° = 20°).
     
     Args:
         bearing_before (float): Direction avant virage (0-360°)

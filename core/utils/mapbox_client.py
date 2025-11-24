@@ -180,7 +180,7 @@ class MapboxClient:
             
         Exemples :
             >>> client = MapboxClient()
-            >>> coords = [[11.5021, 3.8547], [11.5174, 3.8667]]  # Polytechnique → Ekounou
+            >>> coords = [[11.5021, 3.8547], [11.5174, 3.8667]]  # Polytechnique -> Ekounou
             >>> data = client.get_directions(coords, annotations=['congestion', 'maxspeed'])
             >>> if data and data['code'] == 'Ok':
             ...     route = data['routes'][0]
@@ -385,7 +385,7 @@ class MapboxClient:
             >>> polygone_2min = shape(iso_data['features'][0]['geometry'])
             >>> point_test = Point(11.505, 3.855)
             >>> if point_test.within(polygone_2min):
-            ...     print("Point dans isochrone 2min → Trajet exact similaire")
+            ...     print("Point dans isochrone 2min -> Trajet exact similaire")
             
         Optimisations :
             - Pré-générer isochrones pour POI populaires Yaoundé (task Celery périodique)
@@ -591,7 +591,7 @@ class MapboxClient:
             ...     print(f"{feat['properties']['name']} - {feat['geometry']['coordinates']}")
             
         Optimisations :
-            - Cache résultats populaires (ex. "Carrefour Ekounou" → coords fixes)
+            - Cache résultats populaires (ex. "Carrefour Ekounou" -> coords fixes)
             - Limiter à Yaoundé via bbox initial : [11.45, 3.80, 11.60, 3.90] (approximatif)
         """
         if not query:
@@ -643,7 +643,7 @@ class MapboxClient:
         """
         Appelle Mapbox Geocoding API (reverse) pour obtenir POI/adresse depuis coords.
         
-        Utilisé après Map Matching : coords alignées → label POI proche (ex. carrefour, école).
+        Utilisé après Map Matching : coords alignées -> label POI proche (ex. carrefour, école).
         Aussi pour enrichir Points avec métadonnées administratives (quartier, ville).
         
         Args:
@@ -739,11 +739,11 @@ class MapboxClient:
             Optional[float]: Congestion 0-100 ou None si tous "unknown"
             
         Mapping :
-            - "low" → 15
-            - "moderate" → 40
-            - "heavy" → 70
-            - "severe" → 95
-            - "unknown" → ignore (ne compte pas dans moyenne)
+            - "low" -> 15
+            - "moderate" -> 40
+            - "heavy" -> 70
+            - "severe" -> 95
+            - "unknown" -> ignore (ne compte pas dans moyenne)
             
         Exemples :
             >>> data = {'routes': [{'legs': [{'annotation': {'congestion': ['low', 'moderate', 'unknown', 'heavy']}}]}]}
@@ -757,7 +757,7 @@ class MapboxClient:
         if not routes:
             return None
         
-        # Mapping congestion catégorique → numérique
+        # Mapping congestion catégorique -> numérique
         congestion_map = {
             'low': 15,
             'moderate': 40,

@@ -47,9 +47,9 @@ def daily_train_ml_model(self) -> Dict[str, any]:
                         sinuosite_indice, nb_virages, jour_semaine
             - Target : prix
         4. Gérer valeurs manquantes :
-            - Congestion null → remplacer par médiane ou 50 (urbaine default)
-            - Sinuosité null → remplacer par 1.5 (moyenne)
-            - Autres nulls → imputer via SimpleImputer (median strategy)
+            - Congestion null -> remplacer par médiane ou 50 (urbaine default)
+            - Sinuosité null -> remplacer par 1.5 (moyenne)
+            - Autres nulls -> imputer via SimpleImputer (median strategy)
         5. Encoder variables catégoriques :
             - heure : mapping {'matin': 0, 'apres-midi': 1, 'soir': 2, 'nuit': 3}
             - jour_semaine : extraire de date_ajout (datetime.weekday())
@@ -114,7 +114,7 @@ def daily_train_ml_model(self) -> Dict[str, any]:
     """
     # TODO : ÉQUIPE IMPLÉMENTE ENTRAÎNEMENT ML COMPLET
     # TODO : Imports : pandas, scikit-learn (RandomForestRegressor, StandardScaler, train_test_split, metrics), joblib
-    # TODO : Query Trajet.objects.all().values(...) → DataFrame
+    # TODO : Query Trajet.objects.all().values(...) -> DataFrame
     # TODO : Preprocessing : encoder heure, imputer nulls, normaliser
     # TODO : Train/test split, entraînement, évaluation
     # TODO : Sauvegarder modèle si R² > 0.6
