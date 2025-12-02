@@ -40,6 +40,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'rest_framework',
     'django_filters',
+    'drf_spectacular',
     'core',
 ]
 
@@ -109,8 +110,17 @@ REST_FRAMEWORK = {
     'DEFAULT_PARSER_CLASSES': [
         'rest_framework.parsers.JSONParser',
     ],
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
 }
 
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'Fare Calculator API',
+    'DESCRIPTION': 'API REST pour estimation prix taxi au Cameroun',
+    'VERSION': '2.0.0',
+    'SERVE_PERMISSIONS': ['rest_framework.permissions.AllowAny'],
+    'CONTACT': {'email': 'admin@farecalculator.cm'},
+}
+# REST Framework Pagination
 
 # Internationalization
 # https://docs.djangoproject.com/en/5.2/topics/i18n/
