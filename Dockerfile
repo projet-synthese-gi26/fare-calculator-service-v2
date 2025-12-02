@@ -18,7 +18,7 @@ COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/pytho
 COPY --from=builder /usr/local/bin /usr/local/bin
 
 RUN  apt-get update && apt-get install -y --no-install-recommends \
-    curl \
+    netcat \
     libpq5 \
     && rm -rf /var/lib/apt/lists/*
 
