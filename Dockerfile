@@ -20,11 +20,11 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 \
     && rm -rf /var/lib/apt/lists/*
-
-RUN mkdir -p /app/logs && chown -R appuser:appuser /app
-
+    
 # Créer l'utilisateur
 RUN useradd -m appuser
+
+RUN mkdir -p /app/logs && chown -R appuser:appuser /app
 USER appuser
 
 EXPOSE 8000
