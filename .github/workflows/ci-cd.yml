@@ -90,7 +90,7 @@ jobs:
             cd /root/projet_synthese/infra
 
             echo "Stopping container"
-            docker compose down ${{ env.CONTAINER_NAME }}
+            docker compose down ${{ env.CONTAINER_NAME }} celery celery_beat
 
             echo "Removing old image"
             docker rmi -f ${{ env.REGISTRY_IMAGE }}:latest || true
@@ -99,7 +99,7 @@ jobs:
             docker pull ${{ env.REGISTRY_IMAGE }}:latest
 
             echo " Starting container"
-            docker compose up -d
+            docker compose up -d ${{ env.CONTAINER_NAME }} celery celery_beat
 
             echo " Waiting ${{ env.HEALTH_DELAY }} seconds for health check"
             sleep ${{ env.HEALTH_DELAY }}
