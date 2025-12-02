@@ -20,7 +20,9 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 \
     && rm -rf /var/lib/apt/lists/*
-    
+
+COPY . .
+
 # Créer l'utilisateur
 RUN useradd -m appuser
 
