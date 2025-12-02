@@ -12,8 +12,8 @@ env:
   HEALTH_DELAY: ${{ secrets.DEPLOY_DELAY }}
   CONTAINER_NAME: fare-calculator-service
 
-tests:
-  build:
+jobs:
+  tests:
     runs-on: ubuntu-latest
 
     steps:
