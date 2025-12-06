@@ -275,6 +275,9 @@ class EstimateView(APIView):
         
         return self._process_estimate(serializer.validated_data)
     
+    # Instance MapboxClient pour les appels API
+    mapbox_client = mapbox_client
+    
     def _process_estimate(self, validated_data: Dict) -> Response:
         """
         Traite estimation prix avec logique hiérarchique complète.
@@ -291,157 +294,280 @@ class EstimateView(APIView):
         """
         depart_coords = validated_data['depart_coords']
         arrivee_coords = validated_data['arrivee_coords']
+        depart_label = validated_data.get('depart_label')
+        arrivee_label = validated_data.get('arrivee_label')
         heure = validated_data.get('heure')
         meteo = validated_data.get('meteo')
         type_zone = validated_data.get('type_zone')
         congestion_user = validated_data.get('congestion_user')
         
-        logger.info(f"[ESTIMATION REQUEST] Depart {depart_coords} -> Arrivee {arrivee_coords}")
-        logger.info(f"   Variables contextuelles: heure={heure}, meteo={meteo}, type_zone={type_zone}, congestion={congestion_user}")
+        logger.info(f"[ESTIMATION] Depart {depart_coords} -> Arrivee {arrivee_coords}")
+        logger.info(f"   Labels: '{depart_label}' -> '{arrivee_label}'")
+        logger.info(f"   Variables: heure={heure}, meteo={meteo}, type_zone={type_zone}, congestion={congestion_user}")
         
-        # TODO : Équipe implémente logique hiérarchique complète
+        # ============================================================
+        # ÉTAPE 1 : FALLBACKS AUTOMATIQUES POUR VARIABLES MANQUANTES
+        # ============================================================
         
-        # Étape 1 : Fallbacks variables si manquantes
-        # if heure is None:
-        #     heure = determiner_tranche_horaire()
-        # if meteo is None:
-        #     meteo = openmeteo_client.get_current_weather_code(depart_coords[0], depart_coords[1])
+        # Fallback heure : utiliser datetime.now() -> tranche
+        if heure is None:
+            heure = determiner_tranche_horaire()
+            logger.info(f"[FALLBACK] Heure auto-detectee : {heure}")
         
-        # Étape 2 : Identifier quartiers départ/arrivée pour filtrage
-        # quartier_depart = self._get_quartier_from_coords(depart_coords)
-        # quartier_arrivee = self._get_quartier_from_coords(arrivee_coords)
+        # Fallback météo : appeler OpenMeteo API
+        if meteo is None:
+            try:
+                code_meteo = openmeteo_client.get_current_weather_code(depart_coords[0], depart_coords[1])
+                if code_meteo is not None:
+                    meteo = code_meteo
+                    logger.info(f"[FALLBACK] Meteo auto-detectee via OpenMeteo : code {meteo}")
+                else:
+                    meteo = 0  # Soleil par défaut
+                    logger.warning("[FALLBACK] OpenMeteo echec, meteo=0 (soleil) par defaut")
+            except Exception as e:
+                meteo = 0
+                logger.warning(f"[FALLBACK] Erreur OpenMeteo ({e}), meteo=0 par defaut")
         
-        # Étape 3 : check_exact_match
-        # exact_trajets = self.check_exact_match(
-        #     quartier_depart, quartier_arrivee, heure, meteo, type_zone
-        # )
-        # if exact_trajets:
-        #     return self._build_exact_prediction(exact_trajets, depart_coords, arrivee_coords)
+        # ============================================================
+        # ÉTAPE 2 : ENRICHIR LES LABELS VIA REVERSE-GEOCODING SI MANQUANTS
+        # ============================================================
         
-        # Étape 4 : check_similar_match
-        # similar_trajets = self.check_similar_match(
-        #     depart_coords, arrivee_coords, quartier_depart, quartier_arrivee, heure, meteo
-        # )
-        # if similar_trajets:
-        #     return self._build_similar_prediction(similar_trajets, depart_coords, arrivee_coords)
+        depart_metadata = {'label': depart_label, 'quartier': None, 'ville': None, 'arrondissement': None}
+        arrivee_metadata = {'label': arrivee_label, 'quartier': None, 'ville': None, 'arrondissement': None}
         
-        # Étape 5 : fallback_inconnu
-        # estimations = self.fallback_inconnu(
-        #     depart_coords, arrivee_coords, heure, meteo, type_zone
-        # )
-        # return self._build_inconnu_prediction(estimations)
+        # Enrichir départ via Nominatim si label manquant
+        if not depart_label:
+            try:
+                reverse_data = nominatim_client.reverse_geocode(depart_coords[0], depart_coords[1])
+                if reverse_data:
+                    depart_metadata['label'] = reverse_data.get('display_name', '').split(',')[0] or f"Point ({depart_coords[0]:.4f}, {depart_coords[1]:.4f})"
+                    extracted = nominatim_client.extract_quartier_ville(reverse_data)
+                    depart_metadata.update(extracted)
+                    logger.info(f"[GEOCODE] Depart enrichi : {depart_metadata['label']} ({depart_metadata.get('quartier', 'N/A')})")
+                else:
+                    depart_metadata['label'] = f"Point ({depart_coords[0]:.4f}, {depart_coords[1]:.4f})"
+            except Exception as e:
+                depart_metadata['label'] = f"Point ({depart_coords[0]:.4f}, {depart_coords[1]:.4f})"
+                logger.warning(f"[GEOCODE] Erreur Nominatim depart: {e}")
         
-        # Placeholder temporaire avec calcul de distance réelle
-        logger.warning("[WARNING] Logique estimation hierarchique complete NON implementee - utilisation placeholder")
+        # Enrichir arrivée via Nominatim si label manquant
+        if not arrivee_label:
+            try:
+                reverse_data = nominatim_client.reverse_geocode(arrivee_coords[0], arrivee_coords[1])
+                if reverse_data:
+                    arrivee_metadata['label'] = reverse_data.get('display_name', '').split(',')[0] or f"Point ({arrivee_coords[0]:.4f}, {arrivee_coords[1]:.4f})"
+                    extracted = nominatim_client.extract_quartier_ville(reverse_data)
+                    arrivee_metadata.update(extracted)
+                    logger.info(f"[GEOCODE] Arrivee enrichie : {arrivee_metadata['label']} ({arrivee_metadata.get('quartier', 'N/A')})")
+                else:
+                    arrivee_metadata['label'] = f"Point ({arrivee_coords[0]:.4f}, {arrivee_coords[1]:.4f})"
+            except Exception as e:
+                arrivee_metadata['label'] = f"Point ({arrivee_coords[0]:.4f}, {arrivee_coords[1]:.4f})"
+                logger.warning(f"[GEOCODE] Erreur Nominatim arrivee: {e}")
         
-        # Calcul de distance et durée via Mapbox
+        # ============================================================
+        # ÉTAPE 3 : CALCUL DISTANCE/DURÉE VIA MAPBOX DIRECTIONS
+        # ============================================================
+        
         distance_metres = None
         duree_secondes = None
+        congestion_mapbox = None
+        route_classe = None
         
         try:
             logger.info("[MAPBOX] Appel Directions API...")
-            logger.info(f"   Origin: ({depart_coords[1]:.6f}, {depart_coords[0]:.6f}) [lon, lat]")
-            logger.info(f"   Destination: ({arrivee_coords[1]:.6f}, {arrivee_coords[0]:.6f}) [lon, lat]")
             
-            directions = self.mapbox_client.get_directions(
-                origin=(depart_coords[1], depart_coords[0]),  # Mapbox attend (lon, lat)
-                destination=(arrivee_coords[1], arrivee_coords[0]),
-                profile='driving-traffic'  # Inclut trafic en temps réel
+            # Mapbox attend [lon, lat]
+            coords_mapbox = [
+                [depart_coords[1], depart_coords[0]],
+                [arrivee_coords[1], arrivee_coords[0]]
+            ]
+            
+            directions = mapbox_client.get_directions(
+                coordinates=coords_mapbox,
+                profile='driving-traffic',
+                annotations=['congestion', 'duration', 'distance'],
+                steps=True
             )
             
-            if directions and 'routes' in directions and len(directions['routes']) > 0:
+            if directions and directions.get('code') == 'Ok' and directions.get('routes'):
                 route = directions['routes'][0]
                 distance_metres = route.get('distance', 0)
                 duree_secondes = route.get('duration', 0)
                 
-                logger.info("[SUCCESS] Mapbox reponse recue:")
-                logger.info(f"   Distance: {distance_metres:.0f} metres ({distance_metres/1000:.2f} km)")
-                logger.info(f"   Duree: {duree_secondes:.0f} secondes ({duree_secondes/60:.1f} min)")
+                # Extraire congestion moyenne
+                congestion_mapbox = mapbox_client.extract_congestion_moyen(directions)
+                
+                # Extraire classe route dominante
+                route_classe = mapbox_client.extract_route_classe_dominante(directions)
+                
+                logger.info(f"[MAPBOX] Distance: {distance_metres:.0f}m ({distance_metres/1000:.2f}km)")
+                logger.info(f"[MAPBOX] Duree: {duree_secondes:.0f}s ({duree_secondes/60:.1f}min)")
+                logger.info(f"[MAPBOX] Congestion: {congestion_mapbox}, Classe route: {route_classe}")
             else:
-                logger.warning("[WARNING] Mapbox reponse vide - pas de route trouvee")
-                raise ValueError("No route found")
+                raise ValueError("Pas de route trouvee")
                 
         except Exception as e:
-            logger.error(f"[ERROR] Erreur Mapbox Directions: {e}")
-            logger.info("[FALLBACK] Calcul distance Haversine...")
+            logger.warning(f"[MAPBOX] Erreur ({e}) - fallback Haversine")
             
-            # Fallback: distance à vol d'oiseau * coefficient de sinuosité urbaine
-            from math import radians, cos, sin, asin, sqrt
-            
-            def haversine_distance(lat1, lon1, lat2, lon2):
-                """Distance en mètres entre deux points GPS."""
-                lon1, lat1, lon2, lat2 = map(radians, [lon1, lat1, lon2, lat2])
-                dlon = lon2 - lon1
-                dlat = lat2 - lat1
-                a = sin(dlat/2)**2 + cos(lat1) * cos(lat2) * sin(dlon/2)**2
-                c = 2 * asin(sqrt(a))
-                r = 6371000  # Rayon Terre en mètres
-                return c * r
-            
-            distance_vol_oiseau = haversine_distance(
+            # Fallback Haversine
+            distance_metres = haversine_distance(
                 depart_coords[0], depart_coords[1],
                 arrivee_coords[0], arrivee_coords[1]
-            )
-            distance_metres = distance_vol_oiseau * 1.3  # Coefficient sinuosité urbaine
-            duree_secondes = distance_metres / 8.33  # ~30 km/h vitesse moyenne urbaine
+            ) * 1.3  # Coefficient sinuosité urbaine
             
-            logger.info(f"[FALLBACK] Haversine distance: {distance_metres:.0f}m (~{distance_metres/1000:.2f} km)")
-            logger.info(f"[DURATION] Duree estimee: {duree_secondes:.0f}s (~{duree_secondes/60:.1f} min)")
+            duree_secondes = distance_metres / 8.33  # ~30 km/h
+            congestion_mapbox = 50.0  # Valeur par défaut urbaine
+            
+            logger.info(f"[HAVERSINE] Distance: {distance_metres:.0f}m, Duree: {duree_secondes:.0f}s")
         
-        # Calcul du prix basé sur la distance
-        prix_standard = settings.PRIX_STANDARD_JOUR_CFA if heure in ['matin', 'apres-midi', 'soir'] else settings.PRIX_STANDARD_NUIT_CFA
+        # Fallback type_zone si non fourni
+        if type_zone is None:
+            if route_classe in ['motorway', 'trunk', 'primary']:
+                type_zone = 0  # Urbaine
+            elif route_classe in ['secondary', 'tertiary']:
+                type_zone = 1  # Mixte
+            else:
+                type_zone = 0  # Urbaine par défaut pour Yaoundé
+            logger.info(f"[FALLBACK] Type zone deduit : {type_zone}")
         
-        if distance_metres and distance_metres > 0:
-            # Formule simple: prix_base + (distance_km * tarif_km)
-            # Tarifs approximatifs Cameroun: ~200 CFA/km en zone urbaine
-            tarif_par_km = 200
-            prix_calcule = prix_standard + (distance_metres / 1000 * tarif_par_km)
-            
-            logger.info(f"[PRICE] Formule: {prix_standard} CFA (base) + {distance_metres/1000:.2f}km * {tarif_par_km} CFA/km = {prix_calcule:.0f} CFA")
-            
-            # Arrondir au multiple de 25 le plus proche (usage courant)
-            prix_calcule = round(prix_calcule / 25) * 25
-            logger.info(f"[PRICE] Apres arrondi x25: {prix_calcule} CFA")
-            
-            # S'assurer que c'est dans les classes de prix valides
-            prix_calcule = self._arrondir_prix_vers_classe(prix_calcule)
-            logger.info(f"[PRICE] Classe finale: {prix_calcule} CFA")
-        else:
-            prix_calcule = prix_standard
-            logger.info(f"[PRICE] Distance inconnue - prix standard: {prix_calcule} CFA")
+        # ============================================================
+        # ÉTAPE 4 : RECHERCHE TRAJETS SIMILAIRES (HIÉRARCHIE 2D)
+        # ============================================================
         
-        prediction_data = {
-            'statut': 'inconnu',
-            'prix_moyen': prix_calcule,
-            'prix_min': int(prix_calcule * 0.9),  # -10% marge basse
-            'prix_max': int(prix_calcule * 1.1),  # +10% marge haute
-            'distance': distance_metres,  # En mètres
-            'duree': duree_secondes,      # En secondes
-            'estimations_supplementaires': {
-                'distance_based': int(prix_calcule * 0.93),  # -7% estimation basse
-                'standardise': prix_calcule,
-                'zone_based': int(prix_calcule * 0.97)  # -3% estimation intermédiaire
+        similar_result = self.check_similar_match(
+            depart_coords=depart_coords,
+            arrivee_coords=arrivee_coords,
+            distance_mapbox=distance_metres,
+            heure=heure,
+            meteo=meteo,
+            type_zone=type_zone,
+            congestion_user=congestion_user
+        )
+        
+        # ============================================================
+        # ÉTAPE 5 : CONSTRUIRE LA RÉPONSE
+        # ============================================================
+        
+        # Structure détails trajet complète
+        details_trajet = {
+            'depart': {
+                'label': depart_metadata['label'],
+                'coords': depart_coords,
+                'quartier': depart_metadata.get('quartier'),
+                'ville': depart_metadata.get('ville')
             },
-            'fiabilite': 0.6,  # Fiabilité moyenne (basé sur Mapbox mais pas ML)
-            'message': (
-                "Estimation basee sur distance Mapbox (pas encore de ML). "
-                "Ajoutez votre prix reel apres course pour enrichir la base de donnees."
-            ),
-            'details_trajet': {
-                'depart': validated_data.get('depart_label') or f"{depart_coords[0]:.4f}, {depart_coords[1]:.4f}",
-                'arrivee': validated_data.get('arrivee_label') or f"{arrivee_coords[0]:.4f}, {arrivee_coords[1]:.4f}",
-                'heure': heure,
-                'meteo': meteo
+            'arrivee': {
+                'label': arrivee_metadata['label'],
+                'coords': arrivee_coords,
+                'quartier': arrivee_metadata.get('quartier'),
+                'ville': arrivee_metadata.get('ville')
             },
-            'suggestions': [
-                f"Distance calculee: {distance_metres/1000:.2f} km via Mapbox.",
-                f"Duree estimee: {duree_secondes/60:.1f} minutes.",
-                "Logique ML complete pas encore implementee (aucune donnee en BD)."
-            ]
+            'distance_metres': distance_metres,
+            'duree_secondes': duree_secondes,
+            'heure': heure,
+            'meteo': meteo,
+            'meteo_label': {0: 'Soleil', 1: 'Pluie legere', 2: 'Pluie forte', 3: 'Orage'}.get(meteo, 'Inconnu'),
+            'type_zone': type_zone,
+            'type_zone_label': {0: 'Urbaine', 1: 'Mixte', 2: 'Rurale'}.get(type_zone, 'Inconnue'),
+            'congestion_mapbox': congestion_mapbox,
+            'route_classe': route_classe
         }
         
-        logger.info(f"[SUCCESS] Reponse finale: {prix_calcule} CFA pour {distance_metres/1000:.2f} km")
-        logger.info(f"   Statut: {prediction_data['statut']}, Fiabilite: {prediction_data['fiabilite']}")
+        if similar_result:
+            # ========== CAS TRAJET SIMILAIRE TROUVÉ ==========
+            logger.info(f"[MATCH] Trajets similaires trouves ! Statut: {similar_result['statut']}")
+            
+            # Appliquer ajustement congestion POST-similarité si congestion_user fourni
+            prix_final = similar_result['prix_moyen']
+            ajustements = similar_result.get('ajustements_appliques', {})
+            
+            if congestion_user and congestion_user > 7:
+                # Embouteillage signalé par user -> +10%
+                ajust_congestion = int(prix_final * 0.10)
+                prix_final += ajust_congestion
+                ajustements['ajustement_congestion_cfa'] = ajust_congestion
+                ajustements['note_congestion'] = f"+{ajust_congestion} CFA (embouteillage signale niveau {congestion_user}/10)"
+                logger.info(f"[AJUST] Congestion user {congestion_user} -> +{ajust_congestion} CFA")
+            
+            # Arrondir vers classe valide
+            prix_final = self._arrondir_prix_vers_classe(prix_final)
+            
+            prediction_data = {
+                'statut': similar_result['statut'],
+                'prix_moyen': prix_final,
+                'prix_min': similar_result.get('prix_min'),
+                'prix_max': similar_result.get('prix_max'),
+                'distance': distance_metres,
+                'duree': duree_secondes,
+                'fiabilite': similar_result['fiabilite'],
+                'message': similar_result['message'],
+                'nb_trajets_utilises': similar_result.get('nb_trajets_matches', 0),
+                'details_trajet': details_trajet,
+                'ajustements_appliques': ajustements,
+                'suggestions': [
+                    f"Estimation basee sur {similar_result.get('nb_trajets_matches', 0)} trajets similaires.",
+                    "Ajoutez votre prix reel apres le trajet pour ameliorer les estimations."
+                ]
+            }
+            
+        else:
+            # ========== CAS TRAJET INCONNU -> FALLBACK ==========
+            logger.info("[FALLBACK] Aucun trajet similaire - utilisation estimations fallback")
+            
+            # Appeler fallback_inconnu pour les 4 estimations
+            estimations = self.fallback_inconnu(
+                depart_coords=depart_coords,
+                arrivee_coords=arrivee_coords,
+                distance_metres=distance_metres,
+                heure=heure,
+                meteo=meteo,
+                type_zone=type_zone
+            )
+            
+            # Prix moyen = moyenne des estimations disponibles
+            prix_values = [v for v in estimations.values() if v is not None]
+            prix_moyen = int(sum(prix_values) / len(prix_values)) if prix_values else settings.PRIX_STANDARD_JOUR_CFA
+            prix_moyen = self._arrondir_prix_vers_classe(prix_moyen)
+            
+            # Calculer min/max à partir des estimations disponibles, EN LES ARRONDISSANT aux classes
+            valid_estimations = [v for k, v in estimations.items() if v is not None and k != 'ml_prediction']
+            if valid_estimations:
+                prix_min = self._arrondir_prix_vers_classe(min(valid_estimations))
+                prix_max = self._arrondir_prix_vers_classe(max(valid_estimations))
+            else:
+                # Fallback : utiliser classe -1 et +1 autour de prix_moyen
+                classes = settings.PRIX_CLASSES_CFA
+                idx = classes.index(prix_moyen) if prix_moyen in classes else 0
+                prix_min = classes[max(0, idx - 1)]
+                prix_max = classes[min(len(classes) - 1, idx + 1)]
+            
+            prediction_data = {
+                'statut': 'inconnu',
+                'prix_moyen': prix_moyen,
+                'prix_min': prix_min,
+                'prix_max': prix_max,
+                'distance': distance_metres,
+                'duree': duree_secondes,
+                'estimations_supplementaires': estimations,
+                'fiabilite': 0.5,
+                'message': (
+                    "Trajet inconnu dans notre base. Estimation basee sur distance et tarifs standards. "
+                    "Ajoutez votre prix reel apres course pour enrichir les donnees communautaires."
+                ),
+                'details_trajet': details_trajet,
+                'ajustements_appliques': {
+                    'note': 'Aucun ajustement (pas de trajets similaires en BD)'
+                },
+                'suggestions': [
+                    f"Distance calculee : {distance_metres/1000:.2f} km",
+                    f"Duree estimee : {duree_secondes/60:.1f} minutes",
+                    "Fiabilite faible : negociez prudemment",
+                    "Votre contribution enrichira les estimations futures !"
+                ]
+            }
+        
+        logger.info(f"[RESPONSE] Statut={prediction_data['statut']}, Prix={prediction_data['prix_moyen']} CFA, Fiabilite={prediction_data['fiabilite']}")
         
         serializer = PredictionOutputSerializer(data=prediction_data)
         serializer.is_valid(raise_exception=True)
@@ -771,24 +897,32 @@ class EstimateView(APIView):
         info_depart = self._get_quartier_from_coords(depart_coords)
         info_arrivee = self._get_quartier_from_coords(arrivee_coords)
         
+        # Vérification défensive : s'assurer que les résultats sont des dicts
+        if not isinstance(info_depart, dict):
+            logger.warning(f"_get_quartier_from_coords a retourne {type(info_depart)} au lieu de dict pour {depart_coords}")
+            info_depart = {'commune': None, 'quartier': None, 'ville': None, 'arrondissement': None, 'departement': None}
+        if not isinstance(info_arrivee, dict):
+            logger.warning(f"_get_quartier_from_coords a retourne {type(info_arrivee)} au lieu de dict pour {arrivee_coords}")
+            info_arrivee = {'commune': None, 'quartier': None, 'ville': None, 'arrondissement': None, 'departement': None}
+        
         # Construire query base avec toutes les unités disponibles (maximiser chances match)
         query_filters = Q()
         
         # Filtre départ : Prioriser commune, puis arrondissement, puis ville
-        if info_depart['commune']:
-            query_filters &= Q(point_depart__quartier__iexact=info_depart['commune'])
-        elif info_depart['arrondissement']:
-            query_filters &= Q(point_depart__arrondissement__iexact=info_depart['arrondissement'])
-        elif info_depart['ville']:
-            query_filters &= Q(point_depart__ville__iexact=info_depart['ville'])
+        if info_depart.get('commune'):
+            query_filters &= Q(point_depart__quartier__iexact=info_depart.get('commune'))
+        elif info_depart.get('arrondissement'):
+            query_filters &= Q(point_depart__arrondissement__iexact=info_depart.get('arrondissement'))
+        elif info_depart.get('ville'):
+            query_filters &= Q(point_depart__ville__iexact=info_depart.get('ville'))
         
         # Filtre arrivée : Même logique
-        if info_arrivee['commune']:
-            query_filters &= Q(point_arrivee__quartier__iexact=info_arrivee['commune'])
-        elif info_arrivee['arrondissement']:
-            query_filters &= Q(point_arrivee__arrondissement__iexact=info_arrivee['arrondissement'])
-        elif info_arrivee['ville']:
-            query_filters &= Q(point_arrivee__ville__iexact=info_arrivee['ville'])
+        if info_arrivee.get('commune'):
+            query_filters &= Q(point_arrivee__quartier__iexact=info_arrivee.get('commune'))
+        elif info_arrivee.get('arrondissement'):
+            query_filters &= Q(point_arrivee__arrondissement__iexact=info_arrivee.get('arrondissement'))
+        elif info_arrivee.get('ville'):
+            query_filters &= Q(point_arrivee__ville__iexact=info_arrivee.get('ville'))
         
         # Si aucun filtre (reverse-geocode échec), query full BD (lent mais exhaustif)
         candidats = Trajet.objects.filter(query_filters) if query_filters else Trajet.objects.all()
@@ -797,9 +931,9 @@ class EstimateView(APIView):
         if not query_filters:
             logger.warning(f"Filtrage geographique impossible pour {depart_coords} -> {arrivee_coords}. Query full BD.")
         
-        # Si <2 trajets après filtrage, skip calculs coûteux
-        if candidats.count() < 2:
-            logger.info(f"Moins de 2 candidats après filtrage géo. Return None.")
+        # Si aucun trajet après filtrage, skip calculs coûteux
+        if candidats.count() < 1:
+            logger.info(f"Aucun candidat après filtrage géo. Return None.")
             return None
         
         # 2. HIÉRARCHIE 2D : Périmètres (ÉTROIT->ÉLARGI) × Variables (EXACTES->DIFFÉRENTES)
@@ -898,17 +1032,20 @@ class EstimateView(APIView):
         
         # Config périmètre
         if perimetre == 'etroit':
-            isochrone_minutes = settings.ISOCHRONE_MINUTES_ETROIT
-            circle_radius_m = settings.CIRCLE_RADIUS_ETROIT_M
-            tolerance_pourcent = getattr(settings, 'SIMILARITY_DISTANCE_TOLERANCE_ETROIT_POURCENT', 10)
+            # ISOCHRONE_MINUTES_EXACT est une liste, on prend le premier élément
+            isochrone_minutes = settings.ISOCHRONE_MINUTES_EXACT[0] if isinstance(settings.ISOCHRONE_MINUTES_EXACT, list) else settings.ISOCHRONE_MINUTES_EXACT
+            # Fallback cercle 200m pour périmètre étroit (quartier proche)
+            circle_radius_m = 200
+            tolerance_pourcent = getattr(settings, 'SIMILARITY_DISTANCE_TOLERANCE_ETROIT_POURCENT', 15)
             fiabilite_base = 0.95 if variables_exactes else 0.85
-            statut_base = 'exact' if variables_exactes else 'similaire_variables_diff_etroit'
+            statut_base = 'exact' if variables_exactes else 'similaire'
         else:  # elargi
-            isochrone_minutes = settings.ISOCHRONE_MINUTES_ELARGI
-            circle_radius_m = settings.CIRCLE_RADIUS_ELARGI_M
-            tolerance_pourcent = getattr(settings, 'SIMILARITY_DISTANCE_TOLERANCE_ELARGI_POURCENT', 20)
+            isochrone_minutes = settings.ISOCHRONE_MINUTES_SIMILAR[0] if isinstance(settings.ISOCHRONE_MINUTES_SIMILAR, list) else settings.ISOCHRONE_MINUTES_SIMILAR
+            # Fallback cercle 500m pour périmètre élargi (quartiers voisins)
+            circle_radius_m = 500
+            tolerance_pourcent = getattr(settings, 'SIMILARITY_DISTANCE_TOLERANCE_ELARGI_POURCENT', 25)
             fiabilite_base = 0.75 if variables_exactes else 0.65
-            statut_base = 'similaire_elargi' if variables_exactes else 'similaire_variables_diff_elargi'
+            statut_base = 'similaire' if variables_exactes else 'similaire'
         
         # Filtrer par variables contextuelles si demandé
         query = candidats
@@ -920,21 +1057,21 @@ class EstimateView(APIView):
             if type_zone is not None:
                 query = query.filter(type_zone=type_zone)
         
-        # Si <2 trajets après filtrage variables, return None
-        if query.count() < 2:
+        # Si aucun trajet après filtrage variables, return None
+        if query.count() < 1:
             return None
         
         # 3. VÉRIFICATION PÉRIMÈTRE : Isochrones Mapbox ou fallback cercles Haversine
         try:
             # Tenter isochrones Mapbox
             iso_depart = mapbox_client.get_isochrone(
-                coords=[depart_coords[1], depart_coords[0]],  # Mapbox attend [lon, lat]
-                minutes=isochrone_minutes,
+                coordinates=[depart_coords[1], depart_coords[0]],  # Mapbox attend [lon, lat]
+                contours_minutes=[isochrone_minutes],
                 profile='driving-traffic'
             )
             iso_arrivee = mapbox_client.get_isochrone(
-                coords=[arrivee_coords[1], arrivee_coords[0]],
-                minutes=isochrone_minutes,
+                coordinates=[arrivee_coords[1], arrivee_coords[0]],
+                contours_minutes=[isochrone_minutes],
                 profile='driving-traffic'
             )
             
@@ -976,7 +1113,7 @@ class EstimateView(APIView):
                 if dist_dep <= circle_radius_m and dist_arr <= circle_radius_m:
                     matches.append(trajet)
         
-        if len(matches) < 2:
+        if len(matches) < 1:
             return None
         
         # 4. VALIDATION DISTANCES : Matrix API ou Haversine
@@ -995,7 +1132,7 @@ class EstimateView(APIView):
                     'distance_extra': distance_extra
                 })
         
-        if len(matches_with_distance) < 2:
+        if len(matches_with_distance) < 1:
             return None
         
         # 5. CALCUL PRIX MOYEN + AJUSTEMENTS
@@ -1013,8 +1150,9 @@ class EstimateView(APIView):
         
         # Ajustement DISTANCE (bidirectionnel : + si plus long, - si plus court)
         if perimetre == 'elargi':
-            # Conversion : ADJUSTMENT_PRIX_PAR_100M (ex: 5 CFA/100m)
-            ajust_distance = (distance_extra_moyen / 100.0) * settings.ADJUSTMENT_PRIX_PAR_100M
+            # Conversion : PRIX_AJUSTEMENT_PAR_100M (ex: 15 CFA/100m)
+            prix_par_100m = getattr(settings, 'PRIX_AJUSTEMENT_PAR_100M', 15)
+            ajust_distance = (distance_extra_moyen / 100.0) * prix_par_100m
             prix_moyen += ajust_distance
             ajustements['ajustement_distance_cfa'] = ajust_distance
             if ajust_distance > 0:
@@ -1026,21 +1164,31 @@ class EstimateView(APIView):
         
         # Ajustement HEURE/MÉTÉO (seulement si variables DIFFÉRENTES)
         if not variables_exactes:
-            # Identifier différence heure
+            # Identifier différence heure - SEULE la nuit a un tarif différent (+17%)
             if heure and trajets_match[0].heure != heure:
-                # Supposons BD a "jour" et user demande "nuit" -> +50 CFA
-                # Ou inverse -> -30 CFA (exemple simplifié)
-                # TODO : Logique plus précise selon combinaisons
-                ajust_heure = settings.ADJUSTMENT_HEURE_JOUR_NUIT_CFA if heure == 'nuit' else -30
-                prix_moyen += ajust_heure
-                ajustements['ajustement_heure_cfa'] = ajust_heure
-                notes.append(f"Prix basé sur trajets '{trajets_match[0].heure}' ({'+' if ajust_heure > 0 else ''}{int(ajust_heure)} CFA vs '{heure}' demandé)")
+                nuit_pourcent = getattr(settings, 'PRIX_AJUSTEMENT_NUIT_POURCENT', 17)
+                bd_is_nuit = trajets_match[0].heure == 'nuit'
+                demande_is_nuit = heure == 'nuit'
+                
+                if bd_is_nuit and not demande_is_nuit:
+                    # BD = nuit, demandé = jour → Réduire prix (le jour est moins cher)
+                    ajust_heure = -(prix_moyen * nuit_pourcent / (100 + nuit_pourcent))
+                elif not bd_is_nuit and demande_is_nuit:
+                    # BD = jour, demandé = nuit → Augmenter prix
+                    ajust_heure = prix_moyen * nuit_pourcent / 100
+                else:
+                    # matin↔soir↔apres-midi : pas d'ajustement significatif
+                    ajust_heure = 0
+                
+                if ajust_heure != 0:
+                    prix_moyen += ajust_heure
+                    ajustements['ajustement_heure_cfa'] = ajust_heure
+                    notes.append(f"Prix basé sur trajets '{trajets_match[0].heure}' ({'+' if ajust_heure > 0 else ''}{int(ajust_heure)} CFA vs '{heure}' demandé)")
             
             # Identifier différence météo
             if meteo is not None and trajets_match[0].meteo != meteo:
-                # Ex: BD pluie (1), demandé soleil (0) -> -5%
-                # Ou BD soleil (0), demandé pluie (1) -> +10%
-                pourcent_meteo = settings.ADJUSTMENT_METEO_SOLEIL_PLUIE_POURCENT
+                # Pluie = +5% du prix (PRIX_AJUSTEMENT_METEO_PLUIE_POURCENT)
+                pourcent_meteo = getattr(settings, 'PRIX_AJUSTEMENT_METEO_PLUIE_POURCENT', 5)
                 if meteo > trajets_match[0].meteo:  # Demandé pire météo
                     ajust_meteo_pourcent = pourcent_meteo
                 else:  # Demandé meilleure météo
@@ -1067,15 +1215,30 @@ class EstimateView(APIView):
         
         # IMPORTANT : Arrondir prix aux CLASSES valides (100, 150, 200, 250, ...)
         # Les prix taxis Cameroun ne sont PAS continus mais appartiennent à des tranches fixes
+        
+        # Calculer le ratio d'ajustement pour l'appliquer au min/max aussi
+        prix_original = sum(prix_list) / len(prix_list)
+        if prix_original > 0:
+            ratio_ajustement = prix_moyen / prix_original
+            prix_min_ajuste = prix_min * ratio_ajustement
+            prix_max_ajuste = prix_max * ratio_ajustement
+        else:
+            prix_min_ajuste = prix_min
+            prix_max_ajuste = prix_max
+        
         prix_moyen_arrondi = self._arrondir_prix_vers_classe(prix_moyen)
-        prix_min_arrondi = self._arrondir_prix_vers_classe(prix_min)
-        prix_max_arrrond = self._arrondir_prix_vers_classe(prix_max)
+        prix_min_arrondi = self._arrondir_prix_vers_classe(prix_min_ajuste)
+        prix_max_arrondi = self._arrondir_prix_vers_classe(prix_max_ajuste)
+        
+        # S'assurer que min <= moyen <= max
+        prix_min_arrondi = min(prix_min_arrondi, prix_moyen_arrondi)
+        prix_max_arrondi = max(prix_max_arrondi, prix_moyen_arrondi)
         
         return {
             'statut': statut_base,
             'prix_moyen': prix_moyen_arrondi,  # int, pas float !
             'prix_min': prix_min_arrondi,
-            'prix_max': prix_max_arrrond,
+            'prix_max': prix_max_arrondi,
             'fiabilite': fiabilite_base,
             'message': message,
             'ajustements_appliques': ajustements,
@@ -1086,6 +1249,7 @@ class EstimateView(APIView):
         self,
         depart_coords: List[float],
         arrivee_coords: List[float],
+        distance_metres: float,
         heure: Optional[str],
         meteo: Optional[int],
         type_zone: Optional[int]
@@ -1093,72 +1257,134 @@ class EstimateView(APIView):
         """
         Génère estimations pour trajet totalement inconnu (aucun similaire en BD).
         
-        ⚠️ IMPORTANT : Retourne des CLASSES de prix valides (int), pas float continus.
-        Toutes estimations sont arrondies aux tranches fixes : [100, 150, 200, ..., 2000] CFA
-        
-        Retourne 3-4 estimations différentes pour donner choix à utilisateur :
-            1. distance_based : Basé sur distance routière Mapbox et prix/km moyen BD
+        Retourne 4 estimations différentes pour donner choix à utilisateur :
+            1. distance_based : Basé sur distance et prix/km moyen BD
             2. standardise : Tarifs officiels Cameroun (300 CFA jour, 350 nuit)
-            3. zone_based : Prix moyen dans arrondissement/ville (fallback large)
-            4. ml_prediction : Prédiction ML classifier (si disponible)
-            
-        Args:
-            depart_coords, arrivee_coords : Coords [lat, lon]
-            heure, meteo, type_zone : Variables contextuelles (peuvent être None)
-            
-        Returns:
-            Dict : {
-                'distance_based': int,  # Classe valide (ex: 250, pas 247.8)
-                'standardise': int,  # Classe valide (300 ou 350 typiquement)
-                'zone_based': int,  # Classe valide
-                'ml_prediction': int ou None  # Classe valide (si modèle disponible)
-            }
-            
-        Workflow :
-            1. Calculer distance routière via Mapbox Directions
-            2. Estimation distance_based :
-                - Calculer prix/km moyen BD : Trajet.objects.aggregate(Avg('prix'), Avg('distance'))
-                - prix_estim = (prix_moy / distance_moy) * distance_nouveau
-                - Ajuster pour heure/météo (+10% nuit, +5% pluie)
-            3. Estimation standardise :
-                - Lire settings.PRIX_STANDARD_JOUR_CFA / PRIX_STANDARD_NUIT_CFA
-                - Return prix selon heure
-            4. Estimation zone_based :
-                - Identifier ville/arrondissement via reverse-geocode coords
-                - Calculer moyenne prix trajets dans cette zone (Trajet.objects.filter(...))
-                - Si zone vide BD, fallback moyenne globale BD
-            5. Estimation ML :
-                - Appeler self.predict_prix_ml(distance, heure, meteo, type_zone, congestion, ...)
-                - Si modèle non entraîné (pas assez données), return None
-            6. Return dict avec toutes estimations
-            
-        Exemples :
-            >>> estimations = self.fallback_inconnu(
-            ...     [3.8547, 11.5021], [3.8667, 11.5174],
-            ...     'matin', 1, 0
-            ... )
-            >>> print(estimations)
-            {
-                'distance_based': 300,  # int, pas float !
-                'standardise': 300,
-                'zone_based': 300,
-                'ml_prediction': 250
-            }
-            
-        Gestion manques :
-            - Si Mapbox échoue distance, fallback Haversine * facteur sinuosité moyen (1.5)
-            - Si BD vide (pas trajets), utiliser uniquement standardise
-            - Si ML non entraîné, ml_prediction = None (géré dans serializer output)
-            
-        Note implémentation :
-            - Toutes estimations (distance_based, zone_based) doivent appeler self._arrondir_prix_vers_classe()
-            - Même si calcul donne 247.8 CFA, retourner 250 CFA (classe valide)
-            - Prix minimum = 100 CFA (settings.PRIX_CLASSES_CFA[0])
+            3. zone_based : Prix moyen dans arrondissement/ville
+            4. ml_prediction : Prédiction ML (placeholder pour l'instant)
         """
-        # TODO : Équipe implémente estimations fallback complètes
-        # TODO : Intégrer appels Mapbox Directions, agrégations Django, predict_prix_ml
-        # TODO : IMPORTANT : Arrondir tous prix avec self._arrondir_prix_vers_classe()
-        pass
+        from django.db.models import Avg
+        
+        estimations = {}
+        
+        # ============================================================
+        # 1. ESTIMATION DISTANCE-BASED (tarif/km moyen BD)
+        # ============================================================
+        try:
+            # Calculer tarif moyen par km depuis la BD
+            stats = Trajet.objects.aggregate(
+                prix_moyen=Avg('prix'),
+                distance_moyenne=Avg('distance')
+            )
+            
+            if stats['distance_moyenne'] and stats['distance_moyenne'] > 0 and stats['prix_moyen']:
+                tarif_par_km = (stats['prix_moyen'] / stats['distance_moyenne']) * 1000  # CFA/km
+                prix_distance = (distance_metres / 1000) * tarif_par_km
+                
+                # Ajustements heure/météo
+                if heure == 'nuit':
+                    prix_distance *= 1.15  # +15% nuit
+                if meteo and meteo >= 2:  # Pluie forte ou orage
+                    prix_distance *= 1.10  # +10% mauvais temps
+                
+                estimations['distance_based'] = self._arrondir_prix_vers_classe(prix_distance)
+                logger.info(f"[FALLBACK] Distance-based: {estimations['distance_based']} CFA (tarif {tarif_par_km:.1f} CFA/km)")
+            else:
+                # Pas assez de données en BD, utiliser tarif par défaut
+                tarif_defaut = 150  # CFA/km approximatif
+                prix_distance = (distance_metres / 1000) * tarif_defaut + settings.PRIX_STANDARD_JOUR_CFA
+                estimations['distance_based'] = self._arrondir_prix_vers_classe(prix_distance)
+                logger.info(f"[FALLBACK] Distance-based (tarif defaut): {estimations['distance_based']} CFA")
+                
+        except Exception as e:
+            logger.warning(f"[FALLBACK] Erreur calcul distance_based: {e}")
+            estimations['distance_based'] = settings.PRIX_STANDARD_JOUR_CFA
+        
+        # ============================================================
+        # 2. ESTIMATION STANDARDISÉE (tarifs officiels)
+        # ============================================================
+        if heure == 'nuit':
+            estimations['standardise'] = settings.PRIX_STANDARD_NUIT_CFA
+        else:
+            estimations['standardise'] = settings.PRIX_STANDARD_JOUR_CFA
+        
+        # Ajuster selon distance (les tarifs officiels sont pour trajets courts ~2km)
+        if distance_metres > 3000:  # Plus de 3km
+            facteur_distance = 1 + ((distance_metres - 3000) / 5000) * 0.5  # +50% par 5km extra
+            estimations['standardise'] = self._arrondir_prix_vers_classe(
+                estimations['standardise'] * facteur_distance
+            )
+        
+        logger.info(f"[FALLBACK] Standardise: {estimations['standardise']} CFA")
+        
+        # ============================================================
+        # 3. ESTIMATION ZONE-BASED (moyenne trajets dans la zone)
+        # ============================================================
+        try:
+            # Récupérer info quartier départ
+            info_depart = self._get_quartier_from_coords(depart_coords)
+            
+            zone_prix = None
+            
+            # Chercher trajets dans même quartier/arrondissement
+            if info_depart.get('commune'):
+                zone_trajets = Trajet.objects.filter(
+                    point_depart__quartier__iexact=info_depart['commune']
+                ).aggregate(prix_moyen=Avg('prix'))
+                zone_prix = zone_trajets.get('prix_moyen')
+            
+            if not zone_prix and info_depart.get('arrondissement'):
+                zone_trajets = Trajet.objects.filter(
+                    point_depart__arrondissement__iexact=info_depart['arrondissement']
+                ).aggregate(prix_moyen=Avg('prix'))
+                zone_prix = zone_trajets.get('prix_moyen')
+            
+            if not zone_prix and info_depart.get('ville'):
+                zone_trajets = Trajet.objects.filter(
+                    point_depart__ville__iexact=info_depart['ville']
+                ).aggregate(prix_moyen=Avg('prix'))
+                zone_prix = zone_trajets.get('prix_moyen')
+            
+            if zone_prix:
+                estimations['zone_based'] = self._arrondir_prix_vers_classe(zone_prix)
+                logger.info(f"[FALLBACK] Zone-based: {estimations['zone_based']} CFA (zone {info_depart.get('commune') or info_depart.get('ville')})")
+            else:
+                # Fallback : moyenne globale BD
+                global_avg = Trajet.objects.aggregate(prix_moyen=Avg('prix'))['prix_moyen']
+                if global_avg:
+                    estimations['zone_based'] = self._arrondir_prix_vers_classe(global_avg)
+                else:
+                    estimations['zone_based'] = estimations['standardise']
+                logger.info(f"[FALLBACK] Zone-based (global): {estimations['zone_based']} CFA")
+                
+        except Exception as e:
+            logger.warning(f"[FALLBACK] Erreur calcul zone_based: {e}")
+            estimations['zone_based'] = estimations['standardise']
+        
+        # ============================================================
+        # 4. ESTIMATION ML (placeholder - à implémenter)
+        # ============================================================
+        try:
+            ml_prediction = self.predict_prix_ml(
+                distance=distance_metres,
+                heure=heure,
+                meteo=meteo,
+                type_zone=type_zone,
+                congestion=None,
+                sinuosite=None,
+                nb_virages=None
+            )
+            if ml_prediction:
+                estimations['ml_prediction'] = ml_prediction
+                logger.info(f"[FALLBACK] ML prediction: {ml_prediction} CFA")
+            else:
+                estimations['ml_prediction'] = None
+                logger.info("[FALLBACK] ML prediction: non disponible (modele non entraine)")
+        except Exception as e:
+            logger.warning(f"[FALLBACK] Erreur ML prediction: {e}")
+            estimations['ml_prediction'] = None
+        
+        return estimations
     
     def predict_prix_ml(
         self,
@@ -1263,38 +1489,6 @@ class EstimateView(APIView):
         # TODO : Mapper index -> prix réel (PRIX_CLASSES_CFA[classe_idx])
         # TODO : Gérer exceptions (return None si erreur)
         pass
-    
-    def _get_quartier_from_coords(self, coords: List[float]) -> Optional[str]:
-        """
-        Identifie quartier depuis coordonnées via reverse-geocoding.
-        Helper pour filtrage exact/similar.
-        
-        Args:
-            coords : [lat, lon]
-            
-        Returns:
-            str : Nom du quartier ou None si non trouvé
-        """
-        lat, lon = coords
-        logger.debug(f"_get_quartier_from_coords: Reverse-geocoding {lat}, {lon}")
-        
-        # Appeler Nominatim pour reverse-geocoding
-        reverse_data = nominatim_client.reverse_geocode(lat, lon)
-        
-        if reverse_data:
-            metadata = nominatim_client.extract_quartier_ville(reverse_data)
-            quartier = metadata.get('quartier')
-            
-            if quartier:
-                logger.debug(f"Quartier identifié : {quartier}")
-                return quartier
-            else:
-                logger.debug("Quartier non trouvé dans metadata Nominatim")
-                return None
-        else:
-            logger.warning("Reverse-geocoding Nominatim échoué")
-            return None
-
 
 class AddTrajetView(APIView):
     """

@@ -25,7 +25,7 @@ SECRET_KEY = 'django-insecure-jd8m!=^lc83ov2q@l91kaj2b))lhv)$4mr@577e(yt*7-(q+**
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ["fare-calculator-service.pynfi.com"]
+ALLOWED_HOSTS = ["fare-calculator-service.pynfi.com", "localhost", "127.0.0.1" ]
 
 
 # Application definition
@@ -181,9 +181,9 @@ PRIX_CLASSES_CFA = [
 ]
 
 # Seuils similarité trajets
-MAX_DISTANCE_SIMILARITY_METERS = float(os.getenv('MAX_DISTANCE_SIMILARITY_METERS', '150'))  # Rayon cercle fallback si isochrones échouent
-ISOCHRONE_MINUTES_EXACT = [int(os.getenv('ISOCHRONE_MINUTES_EXACT', '2'))]  # Périmètre exact (2 min atteignable)
-ISOCHRONE_MINUTES_SIMILAR = [int(os.getenv('ISOCHRONE_MINUTES_SIMILAR', '5'))]  # Périmètre élargi (5 min atteignable)
+MAX_DISTANCE_SIMILARITY_METERS = float(os.getenv('MAX_DISTANCE_SIMILARITY_METERS', '500'))  # Rayon cercle fallback si isochrones échouent
+ISOCHRONE_MINUTES_EXACT = [int(os.getenv('ISOCHRONE_MINUTES_EXACT', '3'))]  # Périmètre exact (3 min = ~1km urbain)
+ISOCHRONE_MINUTES_SIMILAR = [int(os.getenv('ISOCHRONE_MINUTES_SIMILAR', '7'))]  # Périmètre élargi (7 min = ~2-3km urbain)
 
 # Ajustements prix
 PRIX_AJUSTEMENT_PAR_100M = float(os.getenv('PRIX_AJUSTEMENT_PAR_100M', '15'))  # +15 CFA par 100m distance extra
