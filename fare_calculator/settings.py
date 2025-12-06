@@ -25,7 +25,7 @@ SECRET_KEY = 'django-insecure-jd8m!=^lc83ov2q@l91kaj2b))lhv)$4mr@577e(yt*7-(q+**
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ["fare-calculator-service.pynfi.com"]
 
 
 # Application definition
@@ -198,6 +198,9 @@ MIN_TRAJETS_FOR_ML_TRAINING = int(os.getenv('MIN_TRAJETS_FOR_ML_TRAINING', '50')
 # LOGGING CONFIGURATION
 # ==============================================================================
 
+LOG_DIR = BASE_DIR / "logs"
+LOG_DIR.mkdir(exist_ok=True)
+
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
@@ -218,7 +221,7 @@ LOGGING = {
         },
         'file': {
             'class': 'logging.FileHandler',
-            'filename': BASE_DIR / 'logs' / 'fare_calculator.log',
+            'filename': LOG_DIR / 'fare_calculator.log',
             'formatter': 'verbose',
         },
     },
