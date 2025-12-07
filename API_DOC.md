@@ -1247,7 +1247,11 @@ curl http://localhost:8000/api/health/
 
 ##  Guide d'Implémentation ML pour l'Équipe
 
-Cette section documente les **3 fonctions principales à implémenter** dans `core/views.py`. Ces fonctions sont actuellement des stubs (`pass` + docstrings détaillées) pour permettre à l'équipe ML de les compléter selon les algorithmes décrits dans la documentation du projet.
+État actuel : le backend charge un **RandomForestClassifier** sérialisé (`core/ml/models/classifier_model.pkl`) via `TaxiFareClassifierPredictor`. Le fallback "inconnu" utilise uniquement ce modèle ML (classification 18 classes) et expose les features utilisées (`features_utilisees`). Il n'y a plus d'estimations distance/zone/officielles dans la réponse.
+
+Si vous réentraînez le modèle, sérialisez le pipeline complet (scaler/encodage + modèle) et alignez la version de scikit-learn entre entraînement et runtime. Les prix sont des classes discrètes `PRIX_CLASSES_CFA`.
+
+Les sections ci-dessous décrivent l'architecture cible ; adaptez-les si vous modifiez le pipeline ML.
 
 ### ⚠️ CRITIQUE : Classes de Prix Taxis (Pas de Régression !)
 
