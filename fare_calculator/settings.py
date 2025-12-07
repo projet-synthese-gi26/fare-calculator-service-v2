@@ -118,7 +118,7 @@ SPECTACULAR_SETTINGS = {
     'DESCRIPTION': 'API REST pour estimation prix taxi au Cameroun',
     'VERSION': '2.0.0',
     'SERVE_PERMISSIONS': ['rest_framework.permissions.AllowAny'],
-    'CONTACT': {'email': 'admin@farecalculator.cm'},
+    'CONTACT': {'email': 'donfackarthur750@gmail.com'},
 }
 # REST Framework Pagination
 
