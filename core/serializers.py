@@ -595,6 +595,14 @@ class EstimationsSupplementairesSerializer(serializers.Serializer):
     features_utilisees = FeaturesUtiliseesSerializer(required=False, allow_null=True)
 
 
+class HealthCheckSerializer(serializers.Serializer):
+    """Schéma pour /api/health/"""
+
+    status = serializers.CharField()
+    timestamp = serializers.CharField()
+    checks = serializers.DictField(child=serializers.CharField(), allow_empty=True)
+
+
 class PredictionOutputSerializer(serializers.Serializer):
     """
     Serializer pour réponse estimation prix (DTO non-persistant).

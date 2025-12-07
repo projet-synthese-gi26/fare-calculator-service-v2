@@ -28,6 +28,7 @@ from rest_framework import viewsets, status
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.decorators import action
+from drf_spectacular.utils import extend_schema
 from django.utils import timezone
 from django.db.models import Avg, Min, Max, Count, Q
 from django.conf import settings
@@ -41,7 +42,8 @@ from .serializers import (
     TrajetSerializer,
     ApiKeySerializer,
     EstimateInputSerializer,
-    PredictionOutputSerializer
+    PredictionOutputSerializer,
+    HealthCheckSerializer
 )
 from .utils import (
     mapbox_client,
@@ -230,6 +232,9 @@ class EstimateView(APIView):
         }
     """
     
+    serializer_class = EstimateInputSerializer
+
+    @extend_schema(request=EstimateInputSerializer, responses=PredictionOutputSerializer)
     def post(self, request):
         """Endpoint POST /api/estimate/ avec JSON body."""
         serializer = EstimateInputSerializer(data=request.data)
@@ -1553,6 +1558,9 @@ class AddTrajetView(APIView):
         }
     """
     
+    serializer_class = TrajetSerializer
+
+    @extend_schema(request=TrajetSerializer, responses=TrajetSerializer)
     def post(self, request):
         """Endpoint POST /api/add-trajet/"""
         serializer = TrajetSerializer(data=request.data)
@@ -1596,6 +1604,9 @@ class HealthCheckView(APIView):
         }
     """
     
+    serializer_class = HealthCheckSerializer
+
+    @extend_schema(responses=HealthCheckSerializer)
     def get(self, request):
         from django.db import connection
         from django.core.cache import cache

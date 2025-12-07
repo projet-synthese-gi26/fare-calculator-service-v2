@@ -12,13 +12,23 @@ paths:
       description: Endpoint POST /api/add-trajet/
       tags:
       - add-trajet
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Trajet'
+        required: true
       security:
       - cookieAuth: []
       - basicAuth: []
       - {}
       responses:
         '200':
-          description: No response body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Trajet'
+          description: ''
   /api/estimate/:
     get:
       operationId: estimate_retrieve
@@ -32,19 +42,33 @@ paths:
       - {}
       responses:
         '200':
-          description: No response body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EstimateInput'
+          description: ''
     post:
       operationId: estimate_create
       description: Endpoint POST /api/estimate/ avec JSON body.
       tags:
       - estimate
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EstimateInput'
+        required: true
       security:
       - cookieAuth: []
       - basicAuth: []
       - {}
       responses:
         '200':
-          description: No response body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PredictionOutput'
+          description: ''
   /api/health/:
     get:
       operationId: health_retrieve
@@ -77,7 +101,11 @@ paths:
       - {}
       responses:
         '200':
-          description: No response body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthCheck'
+          description: ''
   /api/points/:
     get:
       operationId: points_list
@@ -441,6 +469,151 @@ components:
     BlankEnum:
       enum:
       - ''
+    EstimateInput:
+      type: object
+      description: |-
+        Serializer pour valider inputs requête /estimate (POST ou GET).
+
+        Validation et conversion :
+            - Accepte départ/arrivée sous forme coords OU nom (flexible)
+            - Si nom fourni, convertir vers coords via Nominatim
+            - Si coords, valider format [lat, lon] ou {lat: X, lon: Y}
+            - Variables optionnelles (heure, météo, type_zone, congestion_user) avec fallbacks
+
+        Exemples JSON input :
+            # Variante coords
+            {
+                "depart": {"lat": 3.8547, "lon": 11.5021},
+                "arrivee": {"lat": 3.8667, "lon": 11.5174},
+                "heure": "matin",  # optionnel
+                "meteo": 1,        # optionnel
+                "type_zone": 0,    # optionnel
+                "congestion_user": 5  # optionnel
+            }
+
+            # Variante noms (conversion auto)
+            {
+                "depart": "Polytechnique Yaoundé",
+                "arrivee": "Carrefour Ekounou",
+                # autres champs optionnels
+            }
+
+            # Variante mixte
+            {
+                "depart": {"lat": 3.8547, "lon": 11.5021},
+                "arrivee": "Carrefour Ekounou"
+            }
+
+        Après validation, attrs contiendra toujours :
+            {
+                "depart_coords": [lat, lon],
+                "arrivee_coords": [lat, lon],
+                "depart_label": str ou None,
+                "arrivee_label": str ou None,
+                "heure": str ou None,
+                "meteo": int ou None,
+                "type_zone": int ou None,
+                "congestion_user": int ou None
+            }
+      properties:
+        depart:
+          description: Coords {lat, lon} ou nom POI (str)
+        arrivee:
+          description: Coords {lat, lon} ou nom POI (str)
+        heure:
+          nullable: true
+          description: |-
+            Tranche horaire. Si null, actuelle détectée.
+
+            * `matin` - Matin (6h-12h)
+            * `apres-midi` - Après-midi (12h-18h)
+            * `soir` - Soir (18h-22h)
+            * `nuit` - Nuit (22h-6h)
+          oneOf:
+          - $ref: '#/components/schemas/HeureEnum'
+          - $ref: '#/components/schemas/NullEnum'
+        meteo:
+          type: integer
+          maximum: 3
+          minimum: 0
+          nullable: true
+          description: Code météo 0-3. Si null, détecté via OpenMeteo.
+        type_zone:
+          type: integer
+          maximum: 2
+          minimum: 0
+          nullable: true
+          description: Type zone 0-2. Si null, déduit routes Mapbox.
+        congestion_user:
+          type: integer
+          maximum: 10
+          minimum: 1
+          nullable: true
+          description: Niveau embouteillages utilisateur 1-10.
+      required:
+      - arrivee
+      - depart
+    EstimationsSupplementaires:
+      type: object
+      description: Estimations alternatives pour statut 'inconnu' (ML uniquement).
+      properties:
+        ml_prediction:
+          type: integer
+          nullable: true
+        features_utilisees:
+          allOf:
+          - $ref: '#/components/schemas/FeaturesUtilisees'
+          nullable: true
+    FeaturesUtilisees:
+      type: object
+      description: Transparence sur les features passées au modèle ML.
+      properties:
+        distance_metres:
+          type: number
+          format: double
+        duree_secondes:
+          type: number
+          format: double
+        congestion:
+          type: number
+          format: double
+          nullable: true
+        sinuosite:
+          type: number
+          format: double
+        nb_virages:
+          type: integer
+        heure:
+          type: string
+        meteo:
+          type: integer
+        type_zone:
+          type: integer
+      required:
+      - congestion
+      - distance_metres
+      - duree_secondes
+      - heure
+      - meteo
+      - nb_virages
+      - sinuosite
+      - type_zone
+    HealthCheck:
+      type: object
+      description: Schéma pour /api/health/
+      properties:
+        status:
+          type: string
+        timestamp:
+          type: string
+        checks:
+          type: object
+          additionalProperties:
+            type: string
+      required:
+      - checks
+      - status
+      - timestamp
     HeureEnum:
       enum:
       - matin
@@ -734,6 +907,95 @@ components:
       - id
       - label
       - updated_at
+    PredictionOutput:
+      type: object
+      description: |-
+        Serializer pour réponse estimation prix (DTO non-persistant).
+
+        Statut hiérarchique (exact/similaire/inconnu) avec prix, ajustements, fiabilité, message.
+        Pour le statut "inconnu", seul le fallback ML est retourné avec transparence des features.
+      properties:
+        statut:
+          allOf:
+          - $ref: '#/components/schemas/StatutEnum'
+          description: |-
+            Statut estimation : exact (match BD), similaire (ajusté), inconnu (fallbacks).
+
+            * `exact` - exact
+            * `similaire` - similaire
+            * `inconnu` - inconnu
+        prix_moyen:
+          type: number
+          format: double
+          description: Prix moyen estimé en CFA.
+        prix_min:
+          type: number
+          format: double
+          nullable: true
+          description: Prix minimal observé (si statut exact/similaire).
+        prix_max:
+          type: number
+          format: double
+          nullable: true
+          description: Prix maximal observé (si statut exact/similaire).
+        distance:
+          type: number
+          format: double
+          nullable: true
+          description: Distance du trajet en mètres (via Mapbox ou Haversine).
+        duree:
+          type: number
+          format: double
+          nullable: true
+          description: Durée estimée du trajet en secondes.
+        estimations_supplementaires:
+          allOf:
+          - $ref: '#/components/schemas/EstimationsSupplementaires'
+          nullable: true
+          description: (Inconnu) Fallback ML uniquement, avec features utilisées.
+        ajustements_appliques:
+          type: object
+          additionalProperties: {}
+          description: Ajustements prix (congestion, météo, sinuosité, heure) avec
+            explications.
+        fiabilite:
+          type: number
+          format: double
+          maximum: 1.0
+          minimum: 0.0
+          nullable: true
+          description: Score fiabilité 0-1 (basé sur nombre trajets similaires, variance
+            prix).
+        message:
+          type: string
+          description: Message explicatif pour utilisateur (ex. 'Basé sur 10 trajets').
+        details_trajet:
+          type: object
+          additionalProperties: {}
+          description: Détails techniques (distance, durée, congestion, météo utilisée).
+        suggestions:
+          type: array
+          items:
+            type: string
+          description: Suggestions pour utilisateur (ex. 'Ajoutez votre prix après
+            trajet').
+      required:
+      - fiabilite
+      - message
+      - prix_max
+      - prix_min
+      - prix_moyen
+      - statut
+    StatutEnum:
+      enum:
+      - exact
+      - similaire
+      - inconnu
+      type: string
+      description: |-
+        * `exact` - exact
+        * `similaire` - similaire
+        * `inconnu` - inconnu
     Trajet:
       type: object
       description: |-
