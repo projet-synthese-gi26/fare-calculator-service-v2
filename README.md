@@ -366,23 +366,23 @@ La réponse varie selon le **type de match** trouvé :
 ```json
 {
     "statut": "inconnu",
-    "prix_moyen": 280.0,
-    "prix_min": null,
-    "prix_max": null,
-    "fiabilite": 0.50,
-    "message": "Trajet inconnu. Estimation basée sur plusieurs méthodes approximatives.",
-    "nb_trajets_utilises": 0,
+    "prix_moyen": 300.0,
+    "prix_min": 250.0,
+    "prix_max": 350.0,
+    "fiabilite": 0.55,
+    "message": "Trajet inconnu dans notre base. Estimation ML prioritaire avec transparence des features.",
     "estimations_supplementaires": {
-        "distance_based": 260.0,
-        "standardise": 300.0,
-        "zone_based": 270.0,
-        "ml_prediction": 285.0
-    },
-    "details_estimations": {
-        "distance_based": "Basé sur distance routière (5.2 km) et prix/km moyen BD (50 CFA/km)",
-        "standardise": "Tarif officiel Cameroun (300 CFA jour, 350 CFA nuit)",
-        "zone_based": "Moyenne prix trajets dans arrondissement Yaoundé II (270 CFA)",
-        "ml_prediction": "Prédiction modèle Machine Learning (R²=0.78)"
+        "ml_prediction": 300,
+        "features_utilisees": {
+            "distance_metres": 5738.7,
+            "duree_secondes": 1207.8,
+            "congestion": 50,
+            "sinuosite": 1.30,
+            "nb_virages": 7,
+            "heure": "apres-midi",
+            "meteo": 0,
+            "type_zone": 0
+        }
     },
     "details_trajet": {
         "depart": {
@@ -397,27 +397,24 @@ La réponse varie selon le **type de match** trouvé :
             "quartier": null,
             "ville": null
         },
-        "distance_estimee": 5200.0,
-        "duree_estimee": 800.0,
-        "heure": "matin",
-        "meteo": 1,
-        "type_zone": 0
+        "distance_metres": 5738.7,
+        "duree_secondes": 1207.8,
+        "heure": "apres-midi",
+        "meteo": 0,
+        "type_zone": 0,
+        "congestion_mapbox": null,
+        "sinuosite_indice": 1.30,
+        "nb_virages_estimes": 7,
+        "route_classe": "primary"
     },
     "ajustements_appliques": {
-        "meteo_opposee": {
-            "code": 0,
-            "label": "Soleil",
-            "prix_estime": 265.0
-        },
-        "heure_opposee": {
-            "tranche": "nuit",
-            "prix_estime": 330.0
-        }
+        "note": "Aucun ajustement (pas de trajets similaires en BD)"
     },
     "suggestions": [
-        "⚠️ Fiabilité faible : aucun trajet similaire en base de données",
-        "Négociez prudemment et ajoutez votre prix après le trajet",
-        "Plus de trajets ajoutés = estimations plus précises pour tous"
+        "Distance calculee : 5.74 km",
+        "Duree estimee : 20.1 minutes",
+        "Fiabilite faible : negociez prudemment",
+        "Votre contribution enrichira les estimations futures !"
     ]
 }
 ```
@@ -432,10 +429,10 @@ La réponse varie selon le **type de match** trouvé :
 | `prix_max` | Float/null | Prix maximum (si trajets exacts/similaires trouvés) |
 | `fiabilite` | Float | Score fiabilité 0.0-1.0 (0.5=faible, 0.75=moyenne, 0.95=haute) |
 | `message` | String | Description estimation en français |
-| `nb_trajets_utilises` | Integer | Nombre de trajets BD utilisés pour estimation |
+| `nb_trajets_utilises` | Integer/Null | Nombre de trajets BD utilisés (absent/0 pour inconnu) |
 | `details_trajet` | Object | Informations complètes trajet (départ, arrivée, distance, durée) |
 | `ajustements_appliques` | Object | Détails ajustements prix (congestion, météo, heure) |
-| `estimations_supplementaires` | Object | (Uniquement statut "inconnu") Estimations alternatives |
+| `estimations_supplementaires` | Object | (Inconnu) Données ML : `ml_prediction`, `features_utilisees` |
 | `suggestions` | Array[String] | Conseils utilisateur |
 
 **Météo opposée & Heure opposée** :
