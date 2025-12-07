@@ -8,6 +8,8 @@ Routes principales :
 """
 from django.contrib import admin
 from django.urls import path, include
+from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView, SpectacularRedocView
+
 
 urlpatterns = [
     # Interface admin Django
@@ -15,4 +17,6 @@ urlpatterns = [
     
     # API REST (authentification ApiKey via middleware)
     path('api/', include('core.urls')),
+    path('api/docs/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
+    path('api/redoc/', SpectacularRedocView.as_view(url_name='schema'), name='redoc'),
 ]

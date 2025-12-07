@@ -50,6 +50,7 @@ from .utils import (
     haversine_distance,
     determiner_tranche_horaire
 )
+from .utils.calculations import calculer_sinuosite_base, calculer_virages_par_km
 
 logger = logging.getLogger(__name__)
 
@@ -373,6 +374,8 @@ class EstimateView(APIView):
         duree_secondes = None
         congestion_mapbox = None
         route_classe = None
+        sinuosite_indice = None
+        nb_virages_calc = None
         
         try:
             logger.info("[MAPBOX] Appel Directions API...")
@@ -400,6 +403,24 @@ class EstimateView(APIView):
                 
                 # Extraire classe route dominante
                 route_classe = mapbox_client.extract_route_classe_dominante(directions)
+
+                # Calculer sinuosité (distance route vs haversine)
+                sinuosite_indice = calculer_sinuosite_base(
+                    distance_metres,
+                    depart_coords[0],
+                    depart_coords[1],
+                    arrivee_coords[0],
+                    arrivee_coords[1]
+                )
+
+                maneuvers = []
+                for leg in route.get('legs', []):
+                    for step in leg.get('steps', []):
+                        maneuver = step.get('maneuver')
+                        if maneuver:
+                            maneuvers.append(maneuver)
+                if maneuvers:
+                    nb_virages_calc, _ = calculer_virages_par_km(maneuvers, distance_metres)
                 
                 logger.info(f"[MAPBOX] Distance: {distance_metres:.0f}m ({distance_metres/1000:.2f}km)")
                 logger.info(f"[MAPBOX] Duree: {duree_secondes:.0f}s ({duree_secondes/60:.1f}min)")
@@ -418,6 +439,14 @@ class EstimateView(APIView):
             
             duree_secondes = distance_metres / 8.33  # ~30 km/h
             congestion_mapbox = 50.0  # Valeur par défaut urbaine
+            sinuosite_indice = calculer_sinuosite_base(
+                distance_metres,
+                depart_coords[0],
+                depart_coords[1],
+                arrivee_coords[0],
+                arrivee_coords[1]
+            )
+            nb_virages_calc = int(distance_metres / 500) if distance_metres else None
             
             logger.info(f"[HAVERSINE] Distance: {distance_metres:.0f}m, Duree: {duree_secondes:.0f}s")
         
@@ -471,6 +500,8 @@ class EstimateView(APIView):
             'type_zone': type_zone,
             'type_zone_label': {0: 'Urbaine', 1: 'Mixte', 2: 'Rurale'}.get(type_zone, 'Inconnue'),
             'congestion_mapbox': congestion_mapbox,
+            'sinuosite_indice': sinuosite_indice,
+            'nb_virages_estimes': nb_virages_calc,
             'route_classe': route_classe
         }
         
@@ -522,26 +553,27 @@ class EstimateView(APIView):
                 distance_metres=distance_metres,
                 heure=heure,
                 meteo=meteo,
-                type_zone=type_zone
+                type_zone=type_zone,
+                congestion_mapbox=congestion_mapbox,
+                congestion_user=congestion_user,
+                sinuosite=sinuosite_indice,
+                nb_virages=nb_virages_calc,
+                distance_override=distance_metres,
+                duree_override=duree_secondes
             )
-            
-            # Prix moyen = moyenne des estimations disponibles
-            prix_values = [v for v in estimations.values() if v is not None]
-            prix_moyen = int(sum(prix_values) / len(prix_values)) if prix_values else settings.PRIX_STANDARD_JOUR_CFA
-            prix_moyen = self._arrondir_prix_vers_classe(prix_moyen)
-            
-            # Calculer min/max à partir des estimations disponibles, EN LES ARRONDISSANT aux classes
-            valid_estimations = [v for k, v in estimations.items() if v is not None and k != 'ml_prediction']
-            if valid_estimations:
-                prix_min = self._arrondir_prix_vers_classe(min(valid_estimations))
-                prix_max = self._arrondir_prix_vers_classe(max(valid_estimations))
+
+            ml_price = estimations.get('ml_prediction')
+            if ml_price is not None:
+                prix_moyen = self._arrondir_prix_vers_classe(ml_price)
             else:
-                # Fallback : utiliser classe -1 et +1 autour de prix_moyen
-                classes = settings.PRIX_CLASSES_CFA
-                idx = classes.index(prix_moyen) if prix_moyen in classes else 0
-                prix_min = classes[max(0, idx - 1)]
-                prix_max = classes[min(len(classes) - 1, idx + 1)]
-            
+                prix_moyen = settings.PRIX_STANDARD_NUIT_CFA if heure == 'nuit' else settings.PRIX_STANDARD_JOUR_CFA
+                prix_moyen = self._arrondir_prix_vers_classe(prix_moyen)
+
+            classes = settings.PRIX_CLASSES_CFA
+            idx = classes.index(prix_moyen) if prix_moyen in classes else 0
+            prix_min = classes[max(0, idx - 1)]
+            prix_max = classes[min(len(classes) - 1, idx + 1)]
+
             prediction_data = {
                 'statut': 'inconnu',
                 'prix_moyen': prix_moyen,
@@ -550,9 +582,9 @@ class EstimateView(APIView):
                 'distance': distance_metres,
                 'duree': duree_secondes,
                 'estimations_supplementaires': estimations,
-                'fiabilite': 0.5,
+                'fiabilite': 0.55 if ml_price is not None else 0.3,
                 'message': (
-                    "Trajet inconnu dans notre base. Estimation basee sur distance et tarifs standards. "
+                    "Trajet inconnu dans notre base. Estimation ML prioritaire avec transparence des features. "
                     "Ajoutez votre prix reel apres course pour enrichir les donnees communautaires."
                 ),
                 'details_trajet': details_trajet,
@@ -572,7 +604,6 @@ class EstimateView(APIView):
         serializer = PredictionOutputSerializer(data=prediction_data)
         serializer.is_valid(raise_exception=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
-    
     def _get_quartier_from_coords(self, coords: List[float]) -> Dict:
         """
         Helper : Extrait la PLUS PETITE unité administrative depuis coords via Nominatim.
@@ -892,10 +923,18 @@ class EstimateView(APIView):
            - Fiabilité réduite (0.85 étroit, 0.65 élargi)
         """
         from shapely.geometry import shape, Point as ShapelyPoint
+
+        logger.info(
+            f"[SIMILAR] Demande distance={distance_mapbox:.0f}m heure={heure} meteo={meteo} type_zone={type_zone}"
+        )
         
         # 1. FILTRAGE GROSSIER : Récupérer unités administratives pour filtrer candidats BD
         info_depart = self._get_quartier_from_coords(depart_coords)
         info_arrivee = self._get_quartier_from_coords(arrivee_coords)
+
+        logger.info(
+            f"[SIMILAR] Filtres geo depart={info_depart} arrivee={info_arrivee}"
+        )
         
         # Vérification défensive : s'assurer que les résultats sont des dicts
         if not isinstance(info_depart, dict):
@@ -930,6 +969,7 @@ class EstimateView(APIView):
         # Log si filtrage échoué
         if not query_filters:
             logger.warning(f"Filtrage geographique impossible pour {depart_coords} -> {arrivee_coords}. Query full BD.")
+        logger.info(f"[SIMILAR] Candidats après filtre geo: {candidats.count()}")
         
         # Si aucun trajet après filtrage, skip calculs coûteux
         if candidats.count() < 1:
@@ -1080,6 +1120,9 @@ class EstimateView(APIView):
                 poly_depart = shape(iso_depart['features'][0]['geometry'])
                 poly_arrivee = shape(iso_arrivee['features'][0]['geometry'])
                 use_isochrones = True
+                logger.info(
+                    f"[SIMILAR] Isochrones {perimetre} {isochrone_minutes}min OK (poly départ {len(iso_depart['features'])} feat)"
+                )
             else:
                 raise ValueError("Isochrones Mapbox retournés vides")
                 
@@ -1115,6 +1158,10 @@ class EstimateView(APIView):
         
         if len(matches) < 1:
             return None
+
+        logger.info(
+            f"[SIMILAR] Matches {len(matches)} sur périmètre {perimetre} (isochrones={use_isochrones})"
+        )
         
         # 4. VALIDATION DISTANCES : Matrix API ou Haversine
         # Calculer distance_extra pour chaque match
@@ -1134,6 +1181,10 @@ class EstimateView(APIView):
         
         if len(matches_with_distance) < 1:
             return None
+
+        logger.info(
+            f"[SIMILAR] Matches dans tolérance distance ({tolerance_pourcent}%): {len(matches_with_distance)}"
+        )
         
         # 5. CALCUL PRIX MOYEN + AJUSTEMENTS
         trajets_match = [m['trajet'] for m in matches_with_distance]
@@ -1252,139 +1303,85 @@ class EstimateView(APIView):
         distance_metres: float,
         heure: Optional[str],
         meteo: Optional[int],
-        type_zone: Optional[int]
-    ) -> Dict[str, int]:
+        type_zone: Optional[int],
+        congestion_mapbox: Optional[float] = None,
+        congestion_user: Optional[int] = None,
+        sinuosite: Optional[float] = None,
+        nb_virages: Optional[int] = None,
+        distance_override: float = None,
+        duree_override: float = None
+    ) -> Dict[str, object]:
         """
-        Génère estimations pour trajet totalement inconnu (aucun similaire en BD).
-        
-        Retourne 4 estimations différentes pour donner choix à utilisateur :
-            1. distance_based : Basé sur distance et prix/km moyen BD
-            2. standardise : Tarifs officiels Cameroun (300 CFA jour, 350 nuit)
-            3. zone_based : Prix moyen dans arrondissement/ville
-            4. ml_prediction : Prédiction ML (placeholder pour l'instant)
+        Génère estimation ML unique pour trajet inconnu (aucun match en BD).
+        La seule estimation retournée est `ml_prediction` issue du classifieur.
         """
-        from django.db.models import Avg
-        
-        estimations = {}
-        
-        # ============================================================
-        # 1. ESTIMATION DISTANCE-BASED (tarif/km moyen BD)
-        # ============================================================
         try:
-            # Calculer tarif moyen par km depuis la BD
-            stats = Trajet.objects.aggregate(
-                prix_moyen=Avg('prix'),
-                distance_moyenne=Avg('distance')
-            )
-            
-            if stats['distance_moyenne'] and stats['distance_moyenne'] > 0 and stats['prix_moyen']:
-                tarif_par_km = (stats['prix_moyen'] / stats['distance_moyenne']) * 1000  # CFA/km
-                prix_distance = (distance_metres / 1000) * tarif_par_km
-                
-                # Ajustements heure/météo
-                if heure == 'nuit':
-                    prix_distance *= 1.15  # +15% nuit
-                if meteo and meteo >= 2:  # Pluie forte ou orage
-                    prix_distance *= 1.10  # +10% mauvais temps
-                
-                estimations['distance_based'] = self._arrondir_prix_vers_classe(prix_distance)
-                logger.info(f"[FALLBACK] Distance-based: {estimations['distance_based']} CFA (tarif {tarif_par_km:.1f} CFA/km)")
-            else:
-                # Pas assez de données en BD, utiliser tarif par défaut
-                tarif_defaut = 150  # CFA/km approximatif
-                prix_distance = (distance_metres / 1000) * tarif_defaut + settings.PRIX_STANDARD_JOUR_CFA
-                estimations['distance_based'] = self._arrondir_prix_vers_classe(prix_distance)
-                logger.info(f"[FALLBACK] Distance-based (tarif defaut): {estimations['distance_based']} CFA")
-                
-        except Exception as e:
-            logger.warning(f"[FALLBACK] Erreur calcul distance_based: {e}")
-            estimations['distance_based'] = settings.PRIX_STANDARD_JOUR_CFA
-        
-        # ============================================================
-        # 2. ESTIMATION STANDARDISÉE (tarifs officiels)
-        # ============================================================
-        if heure == 'nuit':
-            estimations['standardise'] = settings.PRIX_STANDARD_NUIT_CFA
+            from core.apps import taxi_predictor
+        except ImportError:
+            taxi_predictor = None
+
+        # Distance et durée finales (privilégier Mapbox déjà calculé)
+        dist_finale = distance_override or distance_metres
+        if dist_finale is None:
+            dist_finale = haversine_distance(
+                depart_coords[0], depart_coords[1],
+                arrivee_coords[0], arrivee_coords[1]
+            ) * 1.3
+        duree_finale = duree_override or (dist_finale / 8.33 if dist_finale else None)
+
+        # Caractéristiques complémentaires
+        congestion_finale = congestion_mapbox if congestion_mapbox is not None else (
+            float(congestion_user) * 10 if congestion_user is not None else 50.0
+        )
+        sinuosite_finale = sinuosite or calculer_sinuosite_base(
+            dist_finale,
+            depart_coords[0],
+            depart_coords[1],
+            arrivee_coords[0],
+            arrivee_coords[1]
+        )
+        nb_virages_final = nb_virages if nb_virages is not None else (int(dist_finale / 500) if dist_finale else 0)
+        duree_minutes = duree_finale / 60.0 if duree_finale else None
+
+        logger.info(
+            f"[FALLBACK-ML] Features dist={dist_finale:.0f}m duree={duree_finale:.0f}s cong={congestion_finale:.1f} sin={sinuosite_finale:.2f} virages={nb_virages_final} heure={heure} meteo={meteo} zone={type_zone}"
+        )
+
+        ml_prediction = None
+        if taxi_predictor and getattr(taxi_predictor, 'is_ready', False):
+            try:
+                ml_prediction = taxi_predictor.predict(
+                    distance=dist_finale,
+                    heure=heure,
+                    meteo=meteo,
+                    type_zone=type_zone,
+                    congestion=congestion_finale,
+                    sinuosite=sinuosite_finale,
+                    nb_virages=nb_virages_final,
+                    coords_depart=depart_coords,
+                    coords_arrivee=arrivee_coords,
+                    duree=duree_minutes
+                )
+                logger.info(f"[FALLBACK-ML] Prediction ML: {ml_prediction} CFA")
+            except Exception as e:
+                logger.error(f"[FALLBACK-ML] Erreur prediction ML: {e}")
+                ml_prediction = None
         else:
-            estimations['standardise'] = settings.PRIX_STANDARD_JOUR_CFA
-        
-        # Ajuster selon distance (les tarifs officiels sont pour trajets courts ~2km)
-        if distance_metres > 3000:  # Plus de 3km
-            facteur_distance = 1 + ((distance_metres - 3000) / 5000) * 0.5  # +50% par 5km extra
-            estimations['standardise'] = self._arrondir_prix_vers_classe(
-                estimations['standardise'] * facteur_distance
-            )
-        
-        logger.info(f"[FALLBACK] Standardise: {estimations['standardise']} CFA")
-        
-        # ============================================================
-        # 3. ESTIMATION ZONE-BASED (moyenne trajets dans la zone)
-        # ============================================================
-        try:
-            # Récupérer info quartier départ
-            info_depart = self._get_quartier_from_coords(depart_coords)
-            
-            zone_prix = None
-            
-            # Chercher trajets dans même quartier/arrondissement
-            if info_depart.get('commune'):
-                zone_trajets = Trajet.objects.filter(
-                    point_depart__quartier__iexact=info_depart['commune']
-                ).aggregate(prix_moyen=Avg('prix'))
-                zone_prix = zone_trajets.get('prix_moyen')
-            
-            if not zone_prix and info_depart.get('arrondissement'):
-                zone_trajets = Trajet.objects.filter(
-                    point_depart__arrondissement__iexact=info_depart['arrondissement']
-                ).aggregate(prix_moyen=Avg('prix'))
-                zone_prix = zone_trajets.get('prix_moyen')
-            
-            if not zone_prix and info_depart.get('ville'):
-                zone_trajets = Trajet.objects.filter(
-                    point_depart__ville__iexact=info_depart['ville']
-                ).aggregate(prix_moyen=Avg('prix'))
-                zone_prix = zone_trajets.get('prix_moyen')
-            
-            if zone_prix:
-                estimations['zone_based'] = self._arrondir_prix_vers_classe(zone_prix)
-                logger.info(f"[FALLBACK] Zone-based: {estimations['zone_based']} CFA (zone {info_depart.get('commune') or info_depart.get('ville')})")
-            else:
-                # Fallback : moyenne globale BD
-                global_avg = Trajet.objects.aggregate(prix_moyen=Avg('prix'))['prix_moyen']
-                if global_avg:
-                    estimations['zone_based'] = self._arrondir_prix_vers_classe(global_avg)
-                else:
-                    estimations['zone_based'] = estimations['standardise']
-                logger.info(f"[FALLBACK] Zone-based (global): {estimations['zone_based']} CFA")
-                
-        except Exception as e:
-            logger.warning(f"[FALLBACK] Erreur calcul zone_based: {e}")
-            estimations['zone_based'] = estimations['standardise']
-        
-        # ============================================================
-        # 4. ESTIMATION ML (placeholder - à implémenter)
-        # ============================================================
-        try:
-            ml_prediction = self.predict_prix_ml(
-                distance=distance_metres,
-                heure=heure,
-                meteo=meteo,
-                type_zone=type_zone,
-                congestion=None,
-                sinuosite=None,
-                nb_virages=None
-            )
-            if ml_prediction:
-                estimations['ml_prediction'] = ml_prediction
-                logger.info(f"[FALLBACK] ML prediction: {ml_prediction} CFA")
-            else:
-                estimations['ml_prediction'] = None
-                logger.info("[FALLBACK] ML prediction: non disponible (modele non entraine)")
-        except Exception as e:
-            logger.warning(f"[FALLBACK] Erreur ML prediction: {e}")
-            estimations['ml_prediction'] = None
-        
-        return estimations
+            logger.warning("[FALLBACK-ML] Predictor ML non pret ou indisponible")
+
+        return {
+            'ml_prediction': ml_prediction,
+            'features_utilisees': {
+                'distance_metres': dist_finale,
+                'duree_secondes': duree_finale,
+                'congestion': congestion_finale,
+                'sinuosite': sinuosite_finale,
+                'nb_virages': nb_virages_final,
+                'heure': heure,
+                'meteo': meteo,
+                'type_zone': type_zone
+            }
+        }
     
     def predict_prix_ml(
         self,
@@ -1394,7 +1391,10 @@ class EstimateView(APIView):
         type_zone: Optional[int],
         congestion: Optional[float],
         sinuosite: Optional[float],
-        nb_virages: Optional[int]
+        nb_virages: Optional[int],
+        coords_depart: Optional[List[float]] = None,
+        coords_arrivee: Optional[List[float]] = None,
+        duree: Optional[float] = None
     ) -> Optional[int]:
         """
         Prédiction prix via modèle Machine Learning de CLASSIFICATION MULTICLASSE.
@@ -1483,12 +1483,61 @@ class EstimateView(APIView):
             - f1_score (weighted) : Balance precision/recall multi-classes
             - tolerance_1_classe : Pourcentage prédictions ±1 classe (250 au lieu 300 = OK)
         """
-        # TODO : ÉQUIPE IMPLÉMENTE LOGIQUE CLASSIFICATION COMPLÈTE
-        # TODO : Charger classifier (prix_classifier.pkl) + scaler + prix_classes.json
-        # TODO : Encoder features, normaliser, prédire classe (index 0-17)
-        # TODO : Mapper index -> prix réel (PRIX_CLASSES_CFA[classe_idx])
-        # TODO : Gérer exceptions (return None si erreur)
-        pass
+        try:
+            from core.apps import taxi_predictor
+            if not taxi_predictor or not taxi_predictor.is_ready:
+                logger.warning("ML Predictor non disponible.")
+                return None
+
+            prix = taxi_predictor.predict(
+                distance=distance,
+                heure=heure,
+                meteo=meteo,
+                type_zone=type_zone,
+                congestion=congestion,
+                sinuosite=sinuosite,
+                nb_virages=nb_virages,
+                coords_depart=coords_depart,
+                coords_arrivee=coords_arrivee,
+                duree=duree
+            )
+            return prix
+
+        except Exception as e:
+            logger.error(f"Erreur predict_prix_ml: {e}")
+            return None
+
+
+    def _get_quartier_from_coords(self, coords: List[float]) -> Optional[str]:
+        """
+        Identifie quartier depuis coordonnées via reverse-geocoding.
+        Helper pour filtrage exact/similar.
+        
+        Args:
+            coords : [lat, lon]
+            
+        Returns:
+            str : Nom du quartier ou None si non trouvé
+        """
+        lat, lon = coords
+        logger.debug(f"_get_quartier_from_coords: Reverse-geocoding {lat}, {lon}")
+        
+        # Appeler Nominatim pour reverse-geocoding
+        reverse_data = nominatim_client.reverse_geocode(lat, lon)
+        
+        if reverse_data:
+            metadata = nominatim_client.extract_quartier_ville(reverse_data)
+            quartier = metadata.get('quartier')
+            
+            if quartier:
+                logger.debug(f"Quartier identifié : {quartier}")
+                return quartier
+            else:
+                logger.debug("Quartier non trouvé dans metadata Nominatim")
+                return None
+        else:
+            logger.warning("Reverse-geocoding Nominatim échoué")
+            return None
 
 class AddTrajetView(APIView):
     """
@@ -1617,4 +1666,30 @@ class HealthCheckView(APIView):
             'timestamp': timezone.now().isoformat(),
             'checks': checks
         })
+
+
+class ClassifierTestView(APIView):
+    """
+    View de test pour le RandomForestClassifier : GET /api/classifier-test/
+    
+    Endpoint de diagnostic pour vérifier que le classifier fonctionne.
+    Effectue une prédiction de test avec des données exemple.
+    
+    Retourne :
+        {
+            "status": "ok",
+            "model_info": {
+                "type": "RandomForestClassifier",
+                "is_ready": true,
+                "n_features": 13,
+                "n_classes": 18
+            },
+            "test_prediction": {
+                "input": {...},
+                "predicted_price": 500,
+                "message": "Test réussi"
+            }
+        }
+    """
+    
 
