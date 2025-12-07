@@ -79,25 +79,25 @@ class PointViewSet(viewsets.ReadOnlyModelViewSet):
 
 class TrajetViewSet(viewsets.ModelViewSet):
     """
-    ViewSet CRUD complet pour Trajets.
+    ViewSet CRUD pour Trajets (Lecture et Création uniquement).
     
     Endpoints :
         GET /api/trajets/ : Liste tous trajets
         POST /api/trajets/ : Créer nouveau trajet
         GET /api/trajets/{id}/ : Détail trajet
-        PUT/PATCH /api/trajets/{id}/ : Modifier trajet
-        DELETE /api/trajets/{id}/ : Supprimer trajet
         GET /api/trajets/?heure=matin : Filtrage par heure
         GET /api/trajets/?meteo=1 : Filtrage par météo
         GET /api/trajets/?type_zone=0 : Filtrage par type zone
         
+    Note: Modification (PUT/PATCH) et Suppression (DELETE) désactivées via API.
     Utilisé pour contribution communautaire (POST depuis frontend) et admin/debug.
     """
     queryset = Trajet.objects.all().select_related('point_depart', 'point_arrivee')
     serializer_class = TrajetSerializer
+    http_method_names = ['get', 'post', 'head', 'options']
     filterset_fields = ['heure', 'meteo', 'type_zone', 'route_classe_dominante']
     search_fields = ['point_depart__label', 'point_arrivee__label']
-    ordering_fields = ['date_ajout', 'prix', 'distance']
+    ordering_fields = ['date_ajout', 'prix', 'distance', 'point_depart__label']
     ordering = ['-date_ajout']
     
     @action(detail=False, methods=['get'])
@@ -234,7 +234,26 @@ class EstimateView(APIView):
     
     serializer_class = EstimateInputSerializer
 
-    @extend_schema(request=EstimateInputSerializer, responses=PredictionOutputSerializer)
+    @extend_schema(
+        request=EstimateInputSerializer, 
+        responses=PredictionOutputSerializer,
+        description="""
+        Endpoint principal d'estimation de prix.
+        
+        **Flexibilité des paramètres :**
+        - Les coordonnées (`lat`/`lon`) sont **optionnelles** si un nom de lieu (`label`) est fourni.
+        - L'API effectuera un géocodage automatique si nécessaire.
+        - Les paramètres `heure`, `meteo`, `type_zone` sont **optionnels** (détectés automatiquement si omis).
+        
+        **Exemple minimaliste (Noms de lieux uniquement) :**
+        ```json
+        {
+            "depart": {"label": "Poste Centrale"},
+            "arrivee": {"label": "Mvan"}
+        }
+        ```
+        """
+    )
     def post(self, request):
         """Endpoint POST /api/estimate/ avec JSON body."""
         serializer = EstimateInputSerializer(data=request.data)
