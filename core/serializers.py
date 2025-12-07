@@ -575,45 +575,32 @@ class EstimateInputSerializer(serializers.Serializer):
         return attrs
 
 
+class FeaturesUtiliseesSerializer(serializers.Serializer):
+    """Transparence sur les features passées au modèle ML."""
+
+    distance_metres = serializers.FloatField()
+    duree_secondes = serializers.FloatField()
+    congestion = serializers.FloatField(allow_null=True)
+    sinuosite = serializers.FloatField()
+    nb_virages = serializers.IntegerField()
+    heure = serializers.CharField()
+    meteo = serializers.IntegerField()
+    type_zone = serializers.IntegerField()
+
+
+class EstimationsSupplementairesSerializer(serializers.Serializer):
+    """Estimations alternatives pour statut 'inconnu' (ML uniquement)."""
+
+    ml_prediction = serializers.IntegerField(required=False, allow_null=True)
+    features_utilisees = FeaturesUtiliseesSerializer(required=False, allow_null=True)
+
+
 class PredictionOutputSerializer(serializers.Serializer):
     """
     Serializer pour réponse estimation prix (DTO non-persistant).
     
-    Représente objet Prediction retourné par view /estimate avec toutes infos pertinentes.
     Statut hiérarchique (exact/similaire/inconnu) avec prix, ajustements, fiabilité, message.
-    
-    Structure JSON output :
-        {
-            "statut": "exact",  # ou "similaire", "inconnu"
-            "prix_moyen": 250.0,
-            "prix_min": 200.0,
-            "prix_max": 300.0,
-            "estimations_supplementaires": {
-                "distance_based": 240.0,
-                "standardise": 300.0,
-                "zone_based": 260.0,
-                "ml_prediction": 255.0  # Si disponible
-            },
-            "ajustements_appliques": {
-                "congestion": "+20 CFA (trafic heavy)",
-                "sinuosite": "+10 CFA (trajet sinueux)",
-                "meteo": "+15 CFA (pluie forte)",
-                "heure": "+0 CFA (heure normale)"
-            },
-            "fiabilite": 0.95,  # 0-1, pour statut exact/similaire
-            "message": "Estimation basée sur 5 trajets exacts similaires. Fiable.",
-            "details_trajet": {
-                "distance": 5212.5,
-                "duree_estimee": 780.0,
-                "congestion_actuelle": 42.3,
-                "meteo_detectee": "Pluie légère",
-                "heure_utilisee": "matin"
-            },
-            "suggestions": [
-                "Ce prix est cohérent avec les trajets récents.",
-                "Ajoutez votre prix après le trajet pour aider la communauté."
-            ]
-        }
+    Pour le statut "inconnu", seul le fallback ML est retourné avec transparence des features.
     """
     
     statut = serializers.ChoiceField(
@@ -641,9 +628,10 @@ class PredictionOutputSerializer(serializers.Serializer):
         required=False,
         help_text="Durée estimée du trajet en secondes."
     )
-    estimations_supplementaires = serializers.DictField(
+    estimations_supplementaires = EstimationsSupplementairesSerializer(
         required=False,
-        help_text="Estimations alternatives (distance-based, standardisé, zone, ML)."
+        allow_null=True,
+        help_text="(Inconnu) Fallback ML uniquement, avec features utilisées."
     )
     ajustements_appliques = serializers.DictField(
         required=False,
