@@ -1508,37 +1508,6 @@ class EstimateView(APIView):
             return None
 
 
-    def _get_quartier_from_coords(self, coords: List[float]) -> Optional[str]:
-        """
-        Identifie quartier depuis coordonnées via reverse-geocoding.
-        Helper pour filtrage exact/similar.
-        
-        Args:
-            coords : [lat, lon]
-            
-        Returns:
-            str : Nom du quartier ou None si non trouvé
-        """
-        lat, lon = coords
-        logger.debug(f"_get_quartier_from_coords: Reverse-geocoding {lat}, {lon}")
-        
-        # Appeler Nominatim pour reverse-geocoding
-        reverse_data = nominatim_client.reverse_geocode(lat, lon)
-        
-        if reverse_data:
-            metadata = nominatim_client.extract_quartier_ville(reverse_data)
-            quartier = metadata.get('quartier')
-            
-            if quartier:
-                logger.debug(f"Quartier identifié : {quartier}")
-                return quartier
-            else:
-                logger.debug("Quartier non trouvé dans metadata Nominatim")
-                return None
-        else:
-            logger.warning("Reverse-geocoding Nominatim échoué")
-            return None
-
 class AddTrajetView(APIView):
     """
     View pour ajout trajet réel par utilisateur : POST /api/add-trajet/
