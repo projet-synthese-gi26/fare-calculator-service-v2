@@ -186,7 +186,7 @@ class TrajetSerializer(serializers.ModelSerializer):
         model = Trajet
         fields = [
             'id', 'point_depart', 'point_arrivee', 'distance', 'prix',
-            'heure', 'meteo', 'type_zone', 'congestion_user',
+            'heure', 'meteo', 'type_zone', 'congestion_user', 'qualite_trajet',
             'congestion_moyen', 'sinuosite_indice', 'route_classe_dominante',
             'nb_virages', 'force_virages', 'duree_estimee',
             'date_ajout', 'updated_at'
@@ -234,6 +234,11 @@ class TrajetSerializer(serializers.ModelSerializer):
                     logger.info(f"Météo auto-détectée : code {code_meteo}")
                 else:
                     logger.warning("OpenMeteo échoué, météo reste null")
+        
+        # Fallback qualite_trajet : si absent ou null, mettre à 5 (valeur neutre)
+        if attrs.get('qualite_trajet') is None:
+            attrs['qualite_trajet'] = 5
+            logger.info("qualite_trajet non fourni, utilisation valeur par défaut: 5")
         
         return attrs
     

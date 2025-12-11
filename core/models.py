@@ -224,6 +224,12 @@ class Trajet(models.Model):
         help_text="Niveau embouteillages selon user (1=fluide, 10=bloqué). Complète Mapbox pour zones non couvertes.",
         validators=[MinValueValidator(1), MaxValueValidator(10)]
     )
+    qualite_trajet = models.IntegerField(
+        default=5,
+        verbose_name="Qualité/Difficulté du trajet (1-10)",
+        help_text="Évaluation utilisateur de la difficulté du trajet (1=très facile/fluide, 10=très difficile/embouteillages/nids de poule). Valeur par défaut: 5 (normal). Paramètre culturel utilisé pour ML futur.",
+        validators=[MinValueValidator(1), MaxValueValidator(10)]
+    )
     
     # Enrichissements Mapbox (calculés avant stockage)
     congestion_moyen = models.FloatField(

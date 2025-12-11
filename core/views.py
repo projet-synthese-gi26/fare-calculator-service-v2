@@ -1418,7 +1418,8 @@ class EstimateView(APIView):
         nb_virages: Optional[int],
         coords_depart: Optional[List[float]] = None,
         coords_arrivee: Optional[List[float]] = None,
-        duree: Optional[float] = None
+        duree: Optional[float] = None,
+        qualite_trajet: Optional[int] = None
     ) -> Optional[int]:
         """
         Prédiction prix via modèle Machine Learning de CLASSIFICATION MULTICLASSE.
@@ -1444,16 +1445,32 @@ class EstimateView(APIView):
             - congestion (float, 0-100, remplacer None par moyenne ~50.0)
             - sinuosite (float, ≥1.0, remplacer None par 1.5 si manque)
             - nb_virages (int, remplacer None par 0)
+            - qualite_trajet (int, 1-10, remplacer None par 5) **NOUVEAU PARAMÈTRE**
             - feature_interaction : distance * congestion (capture non-linéarité)
             
-        Workflow :
+        **NOTE SUR qualite_trajet :**
+        Ce paramètre (échelle 1-10) représente l'évaluation utilisateur de la difficulté du trajet
+        (embouteillages, nids de poule, conditions routières). Il sera intégré dans le PROCHAIN modèle
+        entraîné. Le modèle actuel (prix_classifier.pkl) NE contient PAS cette feature.
+        
+        Pour l'instant, cette fonction accepte qualite_trajet en paramètre mais ne l'utilise PAS encore
+        dans la prédiction (mock/préparation). Lors du prochain entraînement avec la BD enrichie, 
+        qualite_trajet sera ajouté aux features et le modèle sera ré-entraîné pour l'intégrer.
+        
+        Workflow actuel (SANS qualite_trajet dans le modèle) :
             1. Charger modèle classifier depuis 'ml_models/prix_classifier.pkl' via joblib
             2. Si modèle n'existe pas (pas encore entraîné), return None
             3. Préparer features : encoder heure (mapping str->int), gérer manques (fillna)
+               **IGNORER qualite_trajet pour l'instant** (pas dans le modèle actuel)
             4. Normaliser features (StandardScaler sauvegardé avec modèle)
             5. Prédire classe : classe_idx = model.predict(features_scaled)[0]
             6. Mapper index -> prix réel : prix = PRIX_CLASSES_CFA[classe_idx]
             7. Return prix (int, pas float !)
+            
+        Workflow futur (AVEC qualite_trajet intégré) :
+            1-2. Identique
+            3. Préparer features AVEC qualite_trajet (fillna 5 si None)
+            4-7. Identique
             
         Préparation target pour entraînement (via train_ml_model) :
             1. Pour chaque trajet BD, mapper prix réel vers classe la plus proche
@@ -1466,6 +1483,7 @@ class EstimateView(APIView):
             1. Query tous trajets BD : Trajet.objects.all()
             2. Mapper chaque prix BD vers classe proche (fonction mapper_prix_vers_classe)
             3. Préparer features + target_classes (indices 0-17)
+               **Inclure qualite_trajet dans features pour nouveau modèle**
             4. Split train/test (80/20) stratifié (keep class distribution)
             5. Entraîner RandomForestClassifier ou XGBoost
             6. Évaluer metrics : accuracy, f1-score, tolérance ±1 classe
@@ -1479,6 +1497,7 @@ class EstimateView(APIView):
             congestion : Niveau congestion Mapbox (0-100) ou None
             sinuosite : Indice sinuosité (≥1.0) ou None
             nb_virages : Nombre virages significatifs ou None
+            qualite_trajet : Évaluation difficulté trajet (1-10) ou None **[NOUVEAU - PRÉPARATION]**
             
         Returns:
             int : Prix prédit (une des 18 classes CFA) ou None si modèle indisponible
@@ -1486,7 +1505,7 @@ class EstimateView(APIView):
         Exemples :
             >>> prix_ml = self.predict_prix_ml(
             ...     distance=5200, heure='matin', meteo=1, type_zone=0,
-            ...     congestion=45.0, sinuosite=2.3, nb_virages=7
+            ...     congestion=45.0, sinuosite=2.3, nb_virages=7, qualite_trajet=6
             ... )
             >>> if prix_ml:
             ...     print(f"Prédiction ML : {prix_ml} CFA")  # Ex: "250 CFA" (int, pas float)
@@ -1513,6 +1532,9 @@ class EstimateView(APIView):
                 logger.warning("ML Predictor non disponible.")
                 return None
 
+            # MOCK: Le modèle actuel n'utilise PAS qualite_trajet
+            # On le passe quand même pour préparer le terrain, mais il sera ignoré
+            # jusqu'au prochain entraînement avec le nouveau modèle incluant cette feature
             prix = taxi_predictor.predict(
                 distance=distance,
                 heure=heure,
@@ -1524,6 +1546,9 @@ class EstimateView(APIView):
                 coords_depart=coords_depart,
                 coords_arrivee=coords_arrivee,
                 duree=duree
+                # qualite_trajet n'est PAS passé au prédicteur actuel
+                # car le modèle .pkl existant ne contient pas cette feature
+                # Lors du prochain ré-entraînement, ajouter: qualite_trajet=qualite_trajet
             )
             return prix
 
