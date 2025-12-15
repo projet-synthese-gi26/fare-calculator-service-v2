@@ -1715,5 +1715,74 @@ class ClassifierTestView(APIView):
             }
         }
     """
+    pass
+
+
+class StatsView(APIView):
+    """
+    Vue pour les statistiques globales du service.
+    Fournit des agrégations sur les trajets, prix, lieux populaires, etc.
+    """
     
+    @extend_schema(
+        summary="Obtenir les statistiques globales",
+        description="Retourne des statistiques sur les trajets, les lieux populaires, les records, etc.",
+        responses={200: dict}
+    )
+    def get(self, request):
+        # Filtrage temporel
+        period = request.query_params.get('period', 'all')
+        qs = Trajet.objects.all()
+        
+        if period == 'month':
+            now = timezone.now()
+            qs = qs.filter(date_ajout__year=now.year, date_ajout__month=now.month)
+        elif period == 'week':
+            now = timezone.now()
+            start_week = now - timezone.timedelta(days=7)
+            qs = qs.filter(date_ajout__gte=start_week)
+            
+        # 1. Total trajets
+        total_trajets = qs.count()
+        
+        # 2. Trajets difficiles (Top 5)
+        trajets_difficiles = qs.order_by('-qualite_trajet')[:5]
+        
+        # 3. Trajets chers (Top 5)
+        trajets_chers = qs.order_by('-prix')[:5]
+        
+        # 4. Trajets longs (Top 5 durée)
+        trajets_longs = qs.order_by('-duree_estimee')[:5]
+        
+        # 5. Lieux populaires (Départ & Arrivée)
+        lieux_populaires_depart = qs.values('point_depart__label').annotate(count=Count('point_depart')).order_by('-count')[:5]
+        lieux_populaires_arrivee = qs.values('point_arrivee__label').annotate(count=Count('point_arrivee')).order_by('-count')[:5]
+        
+        # 6. Lieu du mois (Destination la plus populaire ce mois-ci) - Toujours global ou filtré ?
+        # Si on filtre déjà par mois, c'est le lieu du mois. Si on filtre "all", on garde la logique "ce mois-ci".
+        # Pour rester cohérent avec le filtre, on va dire "Lieu le plus populaire de la période".
+        
+        lieu_populaire_qs = qs.values('point_arrivee__label').annotate(count=Count('point_arrivee')).order_by('-count')[:1]
+        lieu_populaire = lieu_populaire_qs[0] if lieu_populaire_qs else None
+
+        # Serialization des listes d'objets
+        def serialize_trajet_list(trajets):
+            return TrajetSerializer(trajets, many=True).data
+
+        data = {
+            "period": period,
+            "total_trajets": total_trajets,
+            "trajets_difficiles": serialize_trajet_list(trajets_difficiles),
+            "trajets_chers": serialize_trajet_list(trajets_chers),
+            "trajets_longs": serialize_trajet_list(trajets_longs),
+            "lieux_populaires": {
+                "depart": list(lieux_populaires_depart),
+                "arrivee": list(lieux_populaires_arrivee)
+            },
+            "lieu_du_mois": lieu_populaire # Renamed key in response logic, but let's keep key name generic or specific?
+            # Let's keep "lieu_du_mois" key for frontend compatibility but it represents "Top Place of Period"
+        }
+        
+        return Response(data)
+
 
