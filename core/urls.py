@@ -20,7 +20,8 @@ from .views import (
     TrajetViewSet,
     EstimateView,
     AddTrajetView,
-    HealthCheckView
+    HealthCheckView,
+    StatsView
 )
 
 # Router DRF pour ViewSets CRUD
@@ -39,6 +40,9 @@ urlpatterns = [
     # Endpoint ajout trajet (alias pour POST /trajets/ avec validation spécifique)
     path('add-trajet/', AddTrajetView.as_view(), name='add-trajet'),
     
+    # Endpoint statistiques globales
+    path('stats/', StatsView.as_view(), name='stats'),
+
     # Health check (pas d'auth requise)
     path('health/', HealthCheckView.as_view(), name='health'),
 ]
