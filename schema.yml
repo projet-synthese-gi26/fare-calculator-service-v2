@@ -334,6 +334,26 @@ paths:
                 type: object
                 additionalProperties: {}
           description: ''
+  /api/stats/:
+    get:
+      operationId: stats_retrieve
+      description: Retourne des statistiques sur les trajets, les lieux populaires,
+        les records, etc.
+      summary: Obtenir les statistiques globales
+      tags:
+      - stats
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
   /api/trajets/:
     get:
       operationId: trajets_list

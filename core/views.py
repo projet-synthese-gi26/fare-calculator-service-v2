@@ -455,24 +455,23 @@ class EstimateView(APIView):
         except Exception as e:
             logger.warning(f"[MAPBOX] Erreur ({e}) - fallback Haversine")
             
-            # Fallback Haversine
-            distance_metres = haversine_distance(
+            # Fallback Haversine - IMPORTANT: garder la distance ligne droite séparée
+            distance_ligne_droite = haversine_distance(
                 depart_coords[0], depart_coords[1],
                 arrivee_coords[0], arrivee_coords[1]
-            ) * 1.3  # Coefficient sinuosité urbaine
+            )
+            # Estimer distance route (coefficient sinuosité urbaine typique)
+            distance_metres = distance_ligne_droite * 1.3
             
             duree_secondes = distance_metres / 8.33  # ~30 km/h
             congestion_mapbox = 50.0  # Valeur par défaut urbaine
-            sinuosite_indice = calculer_sinuosite_base(
-                distance_metres,
-                depart_coords[0],
-                depart_coords[1],
-                arrivee_coords[0],
-                arrivee_coords[1]
-            )
+            
+            # Sinuosité fallback : valeur par défaut urbaine (pas de calcul possible)
+            # On ne peut pas calculer la vraie sinuosité sans données Mapbox
+            sinuosite_indice = 1.3  # Valeur typique urbaine (=coefficient utilisé)
             nb_virages_calc = int(distance_metres / 500) if distance_metres else None
             
-            logger.info(f"[HAVERSINE] Distance: {distance_metres:.0f}m, Duree: {duree_secondes:.0f}s")
+            logger.info(f"[HAVERSINE] Distance ligne droite: {distance_ligne_droite:.0f}m, Distance estimée: {distance_metres:.0f}m, Duree: {duree_secondes:.0f}s")
         
         # Fallback type_zone si non fourni
         if type_zone is None:

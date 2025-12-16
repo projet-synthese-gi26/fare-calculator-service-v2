@@ -127,6 +127,15 @@ def calculer_sinuosite_base(distance_route: float, lat_depart: float, lon_depart
         )
         return 1.0
     
+    # Plafonner à 5.0 (ratio > 5 indique probablement une erreur de données ou trajet aberrant)
+    # En pratique, même les trajets très sinueux dépassent rarement 3.0
+    if ratio > 5.0:
+        logger.warning(
+            f"Sinuosité base très élevée : {ratio:.2f} (distance_route={distance_route}m, "
+            f"distance_haversine={distance_haversine:.2f}m). Plafonnement à 5.0"
+        )
+        return 5.0
+    
     return ratio
 
 
