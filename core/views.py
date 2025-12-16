@@ -799,10 +799,10 @@ class EstimateView(APIView):
                d) Si match : Calculer ajustement DISTANCE via Matrix API :
                   - Calculer distance extra réelle : matrix_depart + matrix_arrivee
                   - **Ajustement bidirectionnel** :
-                    * Si distance_extra > 0 : +settings.ADJUSTMENT_PRIX_PAR_100M par 100m
-                    * Si distance_extra < 0 : -settings.ADJUSTMENT_PRIX_PAR_100M par 100m
-                  - Ex : Trajet demandé 5.2km, BD 5.4km -> -200m -> -10 CFA (réduit prix)
-                  - Ex : Trajet demandé 5.6km, BD 5.4km -> +200m -> +10 CFA (augmente prix)
+                    * Si distance_extra > 0 : +settings.PRIX_AJUSTEMENT_PAR_KM par km (50 CFA/km par défaut)
+                    * Si distance_extra < 0 : -settings.PRIX_AJUSTEMENT_PAR_KM par km
+                  - Ex : Trajet demandé 5.2km, BD 5.4km -> -0.2km -> -10 CFA (réduit prix)
+                  - Ex : Trajet demandé 5.6km, BD 5.4km -> +0.2km -> +10 CFA (augmente prix)
                e) Retourner statut='similaire_elargi', fiabilité 0.75
             
             5. NIVEAU 2B : PÉRIMÈTRE ÉLARGI + Variables DIFFÉRENTES
@@ -883,7 +883,7 @@ class EstimateView(APIView):
             >>> print(result)
             {
                 'statut': 'similaire_elargi',
-                'prix_moyen': 260.0,  # 250 + 10 CFA (200m extra)
+                'prix_moyen': 260.0,  # 250 + 10 CFA (200m = 0.2km extra)
                 'fiabilite': 0.75,
                 'message': 'Estimation ajustée depuis 5 trajets similaires (+10 CFA pour 200m extra).',
                 'ajustements_appliques': {
@@ -893,7 +893,7 @@ class EstimateView(APIView):
             }
             
             # Exemple 4 : Périmètre élargi + distance PLUS COURTE (réduit prix)
-            >>> # Trajet demandé 5.0km, BD 5.4km -> -400m -> -20 CFA
+            >>> # Trajet demandé 5.0km, BD 5.4km -> -400m (-0.4km) -> -20 CFA
             >>> result = self.check_similar_match([3.8545, 11.5020], [3.8665, 11.5170], 5000, 'matin', 0, 0, None)
             >>> print(result)
             {
@@ -920,7 +920,7 @@ class EstimateView(APIView):
             - settings.ISOCHRONE_MINUTES_ELARGI = 5  # Minutes isochrone périmètre élargi
             - settings.CIRCLE_RADIUS_ETROIT_M = 50  # Rayon cercle fallback étroit (mètres)
             - settings.CIRCLE_RADIUS_ELARGI_M = 150  # Rayon cercle fallback élargi (mètres)
-            - settings.ADJUSTMENT_PRIX_PAR_100M = 5.0  # CFA par 100m extra (bidirectionnel !)
+            - settings.PRIX_AJUSTEMENT_PAR_KM = 50.0  # CFA par km extra (bidirectionnel !)
             - settings.ADJUSTMENT_METEO_SOLEIL_PLUIE_POURCENT = 10  # +10% si pluie, -5% inverse
             - settings.ADJUSTMENT_HEURE_JOUR_NUIT_CFA = 50  # +50 CFA si nuit, -30 inverse
             - settings.ADJUSTMENT_CONGESTION_POURCENT = 10  # +10% par tranche 20 pts (appliqué POST-fonction)
@@ -1223,16 +1223,17 @@ class EstimateView(APIView):
         notes = []
         
         # Ajustement DISTANCE (bidirectionnel : + si plus long, - si plus court)
+        # Formule : 50 CFA par kilomètre extra
         if perimetre == 'elargi':
-            # Conversion : PRIX_AJUSTEMENT_PAR_100M (ex: 15 CFA/100m)
-            prix_par_100m = getattr(settings, 'PRIX_AJUSTEMENT_PAR_100M', 15)
-            ajust_distance = (distance_extra_moyen / 100.0) * prix_par_100m
+            prix_ajustement_par_km = getattr(settings, 'PRIX_AJUSTEMENT_PAR_KM', 50.0)
+            distance_extra_km = distance_extra_moyen / 1000.0
+            ajust_distance = distance_extra_km * prix_ajustement_par_km
             prix_moyen += ajust_distance
             ajustements['ajustement_distance_cfa'] = ajust_distance
             if ajust_distance > 0:
-                notes.append(f"+{int(ajust_distance)} CFA pour {int(distance_extra_moyen)}m extra")
+                notes.append(f"+{int(ajust_distance)} CFA pour {int(distance_extra_moyen)}m extra ({distance_extra_km:.2f}km)")
             elif ajust_distance < 0:
-                notes.append(f"{int(ajust_distance)} CFA pour {int(abs(distance_extra_moyen))}m de moins")
+                notes.append(f"{int(ajust_distance)} CFA pour {int(abs(distance_extra_moyen))}m de moins ({abs(distance_extra_km):.2f}km)")
         else:
             ajustements['ajustement_distance_cfa'] = 0.0
         
