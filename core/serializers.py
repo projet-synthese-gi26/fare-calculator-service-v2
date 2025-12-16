@@ -316,27 +316,39 @@ class TrajetSerializer(serializers.ModelSerializer):
                     if 'maneuver' in step:
                         maneuvers.append(step['maneuver'])
             
-            # Méthode 3 (force virages) - préférée
+            # Calcul sinuosité avec méthode unifiée
+            # TOUJOURS calculer d'abord la sinuosité base (ratio distance/ligne droite)
+            # C'est la référence de base, les autres méthodes servent à enrichir
+            sinuosite_base = calculer_sinuosite_base(
+                validated_data['distance'],
+                point_depart.coords_latitude, point_depart.coords_longitude,
+                point_arrivee.coords_latitude, point_arrivee.coords_longitude
+            )
+            
+            # Méthode 3 (force virages) - pour enrichir avec données virages
             force_virages = calculer_force_virages(maneuvers, validated_data['distance'])
             if force_virages is not None:
                 validated_data['force_virages'] = round(force_virages, 2)
-                validated_data['sinuosite_indice'] = round(1.0 + (force_virages / 100), 2)
-                logger.info(f"Sinuosité via force virages : {validated_data['sinuosite_indice']}")
+                # Combiner sinuosité base avec force virages pour affiner
+                # Force virages typique : 50-200 °/km (modéré=100, sinueux=200+)
+                # Contribution : +0.1 par 50°/km, plafonné à +1.0
+                bonus_virages = min(force_virages / 500, 1.0)
+                sinuosite_combinee = sinuosite_base + bonus_virages
+                validated_data['sinuosite_indice'] = round(min(sinuosite_combinee, 5.0), 2)  # Max 5.0
+                logger.info(f"Sinuosité via force virages : base={sinuosite_base:.2f}, bonus={bonus_virages:.2f}, final={validated_data['sinuosite_indice']}")
             else:
-                # Fallback Méthode 2 (virages par km)
+                # Fallback Méthode 2 (virages par km) - pour enrichir
                 nb_virages, virages_km = calculer_virages_par_km(maneuvers, validated_data['distance'])
                 validated_data['nb_virages'] = nb_virages
                 if virages_km > 0:
-                    validated_data['sinuosite_indice'] = round(1.0 + (virages_km / 2), 2)
-                    logger.info(f"Sinuosité via virages/km : {validated_data['sinuosite_indice']}")
+                    # Contribution : +0.1 par virage/km, plafonné à +0.5
+                    bonus_virages = min(virages_km * 0.1, 0.5)
+                    sinuosite_combinee = sinuosite_base + bonus_virages
+                    validated_data['sinuosite_indice'] = round(min(sinuosite_combinee, 5.0), 2)  # Max 5.0
+                    logger.info(f"Sinuosité via virages/km : base={sinuosite_base:.2f}, bonus={bonus_virages:.2f}, final={validated_data['sinuosite_indice']}")
                 else:
-                    # Fallback Méthode 1 (distance/ligne droite)
-                    sinuosite_base = calculer_sinuosite_base(
-                        validated_data['distance'],
-                        point_depart.coords_latitude, point_depart.coords_longitude,
-                        point_arrivee.coords_latitude, point_arrivee.coords_longitude
-                    )
-                    validated_data['sinuosite_indice'] = round(sinuosite_base, 2)
+                    # Utiliser uniquement la sinuosité base
+                    validated_data['sinuosite_indice'] = round(min(sinuosite_base, 5.0), 2)  # Max 5.0
                     logger.info(f"Sinuosité via méthode base : {validated_data['sinuosite_indice']}")
             
             # Classe route dominante
