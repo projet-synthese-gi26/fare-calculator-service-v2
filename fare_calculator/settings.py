@@ -25,7 +25,16 @@ SECRET_KEY = 'django-insecure-jd8m!=^lc83ov2q@l91kaj2b))lhv)$4mr@577e(yt*7-(q+**
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ["fare-calculator-service.pynfi.com", "localhost", "127.0.0.1" ]
+ALLOWED_HOSTS = ["fare-calculator-service.pynfi.com", "localhost", "127.0.0.1"]
+
+# Configuration de sécurité pour le déploiement (Vercel + Pynfi)
+CSRF_TRUSTED_ORIGINS = [
+    "https://fare-calculator-service.pynfi.com",
+    "https://fare-calculator-front.vercel.app"
+]
+
+# Détection du HTTPS derrière le reverse proxy (déploiement Docker/Pynfi)
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
 
 # Application definition
@@ -260,6 +269,8 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "http://localhost:3000",
     "http://127.0.0.1:5173",
+    "https://fare-calculator-front.vercel.app",
+    "https://fare-calculator-service.pynfi.com",
 ]
 
 CORS_ALLOW_CREDENTIALS = True
