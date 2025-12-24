@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.utils.html import format_html
 from django.urls import reverse
 from django.utils.safestring import mark_safe
-from .models import Point, Trajet, ApiKey
+from .models import Point, Trajet, ApiKey, Publicite
 
 
 @admin.register(ApiKey)
@@ -167,6 +167,20 @@ class TrajetAdmin(admin.ModelAdmin):
             return labels.get(obj.meteo, str(obj.meteo))
         return "-"
     meteo_display.short_description = "Météo"
+
+
+@admin.register(Publicite)
+class PubliciteAdmin(admin.ModelAdmin):
+    list_display = ['title', 'category', 'is_active', 'image_preview', 'created_at']
+    list_filter = ['category', 'is_active', 'created_at']
+    search_fields = ['title', 'description']
+    ordering = ['-created_at']
+    
+    def image_preview(self, obj):
+        if obj.image_url:
+            return mark_safe(f'<img src="{obj.image_url}" width="50" height="30" style="object-fit: cover; border-radius: 4px;" />')
+        return "-"
+    image_preview.short_description = "Aperçu"
 
 
 # Personnalisation du site admin
