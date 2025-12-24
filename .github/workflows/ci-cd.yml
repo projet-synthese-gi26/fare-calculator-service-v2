@@ -57,7 +57,6 @@ jobs:
       - name: Build Docker image
         run: |
           echo "Building Docker image..."
-          mv .env.example .env
           docker build -t ${{ env.REGISTRY_IMAGE }}:latest .
 
       - name: Push Docker image
