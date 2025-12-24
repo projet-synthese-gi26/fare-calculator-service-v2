@@ -188,6 +188,59 @@ paths:
               schema:
                 $ref: '#/components/schemas/Point'
           description: ''
+  /api/publicites/:
+    get:
+      operationId: publicites_list
+      description: |-
+        ViewSet lecture seule pour les publicités actives.
+
+        Endpoints :
+            GET /api/publicites/ : Liste toutes les pubs actives
+            GET /api/publicites/{id}/ : Détail d'une pub
+      tags:
+      - publicites
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Publicite'
+          description: ''
+  /api/publicites/{id}/:
+    get:
+      operationId: publicites_retrieve
+      description: |-
+        ViewSet lecture seule pour les publicités actives.
+
+        Endpoints :
+            GET /api/publicites/ : Liste toutes les pubs actives
+            GET /api/publicites/{id}/ : Détail d'une pub
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this Publicité.
+        required: true
+      tags:
+      - publicites
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Publicite'
+          description: ''
   /api/schema/:
     get:
       operationId: schema_retrieve
@@ -865,6 +918,52 @@ components:
       - prix_min
       - prix_moyen
       - statut
+    Publicite:
+      type: object
+      description: Serializer pour le modèle Publicite.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        title:
+          type: string
+          title: Titre
+          maxLength: 255
+        description:
+          type: string
+        image_url:
+          type: string
+          format: uri
+          title: URL de l'image
+          maxLength: 500
+        app_link:
+          type: string
+          format: uri
+          nullable: true
+          title: Lien de l'application
+          maxLength: 500
+        category:
+          type: string
+          title: Catégorie
+          maxLength: 100
+        color:
+          type: string
+          title: Couleur (HEX)
+          maxLength: 7
+        is_active:
+          type: boolean
+          title: Active
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+          title: Date d'ajout
+      required:
+      - created_at
+      - description
+      - id
+      - image_url
+      - title
     StatutEnum:
       enum:
       - exact
