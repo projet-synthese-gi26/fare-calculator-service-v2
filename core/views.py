@@ -36,14 +36,14 @@ from datetime import datetime
 import logging
 from typing import Dict, List, Optional, Tuple
 
-from .models import Point, Trajet, ApiKey
+from .models import Point, Trajet, ApiKey, Publicite
 from .serializers import (
     PointSerializer,
     TrajetSerializer,
-    ApiKeySerializer,
     EstimateInputSerializer,
     PredictionOutputSerializer,
-    HealthCheckSerializer
+    HealthCheckSerializer,
+    PubliciteSerializer
 )
 from .utils import (
     mapbox_client,
@@ -137,6 +137,19 @@ class TrajetViewSet(viewsets.ModelViewSet):
             "message": "TODO équipe : implémenter stats agrégées",
             "note": "Utiliser Django ORM aggregations (Avg, Min, Max, Count)"
         })
+
+
+class PubliciteViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    ViewSet lecture seule pour les publicités actives.
+    
+    Endpoints :
+        GET /api/publicites/ : Liste toutes les pubs actives
+        GET /api/publicites/{id}/ : Détail d'une pub
+    """
+    queryset = Publicite.objects.filter(is_active=True)
+    serializer_class = PubliciteSerializer
+    pagination_class = None  # Pas de pagination pour les pubs
 
 
 class EstimateView(APIView):

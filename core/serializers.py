@@ -23,7 +23,7 @@ from datetime import datetime
 from typing import Dict, Optional
 import logging
 
-from .models import Point, Trajet, ApiKey
+from .models import Point, Trajet, ApiKey, Publicite
 from .utils import (
     mapbox_client,
     nominatim_client,
@@ -680,3 +680,10 @@ class PredictionOutputSerializer(serializers.Serializer):
         required=False,
         help_text="Suggestions pour utilisateur (ex. 'Ajoutez votre prix après trajet')."
     )
+
+
+class PubliciteSerializer(serializers.ModelSerializer):
+    """Serializer pour le modèle Publicite."""
+    class Meta:
+        model = Publicite
+        fields = '__all__'

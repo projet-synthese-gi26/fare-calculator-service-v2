@@ -21,13 +21,15 @@ from .views import (
     EstimateView,
     AddTrajetView,
     HealthCheckView,
-    StatsView
+    StatsView,
+    PubliciteViewSet
 )
 
 # Router DRF pour ViewSets CRUD
 router = DefaultRouter()
 router.register(r'points', PointViewSet, basename='point')
 router.register(r'trajets', TrajetViewSet, basename='trajet')
+router.register(r'publicites', PubliciteViewSet, basename='publicite')
 
 # URLs patterns
 urlpatterns = [

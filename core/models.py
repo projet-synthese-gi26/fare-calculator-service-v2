@@ -443,3 +443,26 @@ class ApiKey(models.Model):
         self.usage_count = F('usage_count') + 1
         self.save(update_fields=['last_used', 'usage_count'])
         self.refresh_from_db()  # Refresh pour obtenir la nouvelle valeur après F()
+
+
+class Publicite(models.Model):
+    """
+    Modèle pour gérer les publicités dynamiques affichées dans l'application.
+    Permet de centraliser les campagnes (Wiki Taxi, Eco Ride, etc.) côté backend.
+    """
+    title = models.CharField(max_length=255, verbose_name="Titre")
+    description = models.TextField(verbose_name="Description")
+    image_url = models.URLField(max_length=500, verbose_name="URL de l'image")
+    app_link = models.URLField(max_length=500, verbose_name="Lien de l'application", null=True, blank=True)
+    category = models.CharField(max_length=100, verbose_name="Catégorie", default="Transport")
+    color = models.CharField(max_length=7, verbose_name="Couleur (HEX)", default="#f3cd08")
+    is_active = models.BooleanField(default=True, verbose_name="Active")
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="Date d'ajout")
+
+    class Meta:
+        verbose_name = "Publicité"
+        verbose_name_plural = "Publicités"
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return self.title
