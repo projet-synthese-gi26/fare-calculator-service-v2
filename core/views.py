@@ -1759,7 +1759,7 @@ class StatsView(APIView):
         total_trajets = qs.count()
         
         # 2. Trajets difficiles (Top 5)
-        trajets_difficiles = qs.order_by('-qualite_trajet')[:5]
+        trajets_difficiles = qs.order_by('qualite_trajet')[:5]
         
         # 3. Trajets chers (Top 5)
         trajets_chers = qs.order_by('-prix')[:5]
