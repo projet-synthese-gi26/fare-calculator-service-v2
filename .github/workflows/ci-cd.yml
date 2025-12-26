@@ -92,8 +92,8 @@ jobs:
 
             cd /root/projet_synthese/infra
 
-            echo "Stopping all services"
-            docker compose down
+            echo "Stopping fare-calculator services only"
+            docker compose down fare-calculator-service celery_worker celery_beat || true
 
             echo "Removing old image"
             docker rmi -f ${{ env.REGISTRY_IMAGE }}:latest || true
@@ -101,27 +101,32 @@ jobs:
             echo "Pulling new image"
             docker pull ${{ env.REGISTRY_IMAGE }}:latest
 
-            echo "Starting ALL services (db, redis, app, celery)"
-            docker compose up -d db redis
-            
-            echo "Waiting 10s for database to be ready..."
-            sleep 10
-            
+            echo "Starting fare-calculator services"
             docker compose up -d fare-calculator-service celery_worker celery_beat
 
             echo "Waiting ${{ env.HEALTH_DELAY }} seconds for health check"
             sleep ${{ env.HEALTH_DELAY }}
 
             echo "Checking container health..."
-            STATUS=$(docker inspect --format='{{json .State.Health.Status}}' ${{ env.CONTAINER_NAME }})
+            STATUS=$(docker inspect --format='{{json .State.Health.Status}}' ${{ env.CONTAINER_NAME }} 2>/dev/null || echo '"starting"')
 
             echo "Health status: $STATUS"
 
             if [ "$STATUS" != "\"healthy\"" ]; then
-              echo "ERROR: Container is not healthy"
-              echo "--- Container logs ---"
-              docker logs ${{ env.CONTAINER_NAME }} --tail 50
-              exit 1
+              echo "WARNING: Container may still be starting. Showing logs..."
+              docker logs ${{ env.CONTAINER_NAME }} --tail 30 || true
+              
+              # Retry health check
+              echo "Waiting 30 more seconds..."
+              sleep 30
+              STATUS=$(docker inspect --format='{{json .State.Health.Status}}' ${{ env.CONTAINER_NAME }} 2>/dev/null || echo '"unknown"')
+              echo "Final health status: $STATUS"
+              
+              if [ "$STATUS" != "\"healthy\"" ]; then
+                echo "ERROR: Container is not healthy after extended wait"
+                docker logs ${{ env.CONTAINER_NAME }} --tail 50 || true
+                exit 1
+              fi
             fi
 
             echo "Deployment successful & container healthy!"
