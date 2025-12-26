@@ -1731,6 +1731,9 @@ class ClassifierTestView(APIView):
     pass
 
 
+from django.utils.decorators import method_decorator
+from django.views.decorators.cache import cache_page
+
 class StatsView(APIView):
     """
     Vue pour les statistiques globales du service.
@@ -1742,6 +1745,7 @@ class StatsView(APIView):
         description="Retourne des statistiques sur les trajets, les lieux populaires, les records, etc.",
         responses={200: dict}
     )
+    @method_decorator(cache_page(60 * 15))  # Cache 15 minutes
     def get(self, request):
         # Filtrage temporel
         period = request.query_params.get('period', 'all')

@@ -31,13 +31,18 @@ router.register(r'points', PointViewSet, basename='point')
 router.register(r'trajets', TrajetViewSet, basename='trajet')
 router.register(r'publicites', PubliciteViewSet, basename='publicite')
 
+from .async_views import AsyncEstimateView
+
 # URLs patterns
 urlpatterns = [
     # Routes CRUD via router
     path('', include(router.urls)),
     
-    # Endpoint estimation prix (POST)
+    # Endpoint estimation prix (POST) - Sync
     path('estimate/', EstimateView.as_view(), name='estimate'),
+    
+    # Endpoint estimation prix (POST) - ASYNC (Désactivé pour le moment sur demande user)
+    path('estimate-async/', AsyncEstimateView.as_view(), name='estimate-async'),
     
     # Endpoint ajout trajet (alias pour POST /trajets/ avec validation spécifique)
     path('add-trajet/', AddTrajetView.as_view(), name='add-trajet'),
