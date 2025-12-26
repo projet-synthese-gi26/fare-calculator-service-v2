@@ -105,7 +105,7 @@ DATABASES = {
 if os.getenv('POSTGRES_DB') and os.getenv('GITHUB_ACTIONS') != 'true':
     # En dev local (Windows) avec Postgres installé en natif, 'db' ne fonctionnera pas.
     # On force 'localhost' si on détecte Windows ET que l'hôte indiqué est 'db'.
-    db_host = os.getenv('POSTGRES_HOST', 'localhost')
+    db_host = os.getenv('POSTGRES_HOST', 'db')
     if os.name == 'nt' and db_host == 'db':
         db_host = 'localhost'
 
