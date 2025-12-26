@@ -25,6 +25,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY . .
 
+RUN useradd -m appuser
+
 # S'assurer que le script d'initialisation est exécutable et au format Linux
 USER root
 RUN apt-get update && apt-get install -y sed && rm -rf /var/lib/apt/lists/*
