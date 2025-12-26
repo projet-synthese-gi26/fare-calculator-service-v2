@@ -17,29 +17,29 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout Repository
-      uses: actions/checkout@v2
+      - name: Checkout Repository
+        uses: actions/checkout@v2
 
-    - name: Set up Python
-      uses: actions/setup-python@v2
-      with:
-        python-version: "3.11"
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: "3.11"
 
-    - name: Install Dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
 
-    - name: Apply Migration
-      #continue-on-error: true
-      run: |
-        python manage.py makemigrations --merge --noinput
-        python manage.py migrate
+      - name: Apply Migration
+        #continue-on-error: true
+        run: |
+          python manage.py makemigrations --merge --noinput
+          python manage.py migrate
 
-    - name: Run Tests
-      #continue-on-error: true
-      run: |
-        python manage.py test
+      - name: Run Tests
+        #continue-on-error: true
+        run: |
+          python manage.py test
 
   build:
     needs: tests
@@ -78,6 +78,10 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
+      - name: Copy docker-compose.yml to server
+        run: |
+          scp -o StrictHostKeyChecking=no docker-compose.yml ${{ secrets.REMOTE_USER }}@${{ secrets.REMOTE_HOST }}:/root/projet_synthese/infra/docker-compose.yml
+
       - name: Deploy on server
         run: |
           ssh -o StrictHostKeyChecking=no ${{ secrets.REMOTE_USER }}@${{ secrets.REMOTE_HOST }} << 'EOF'
@@ -97,19 +101,21 @@ jobs:
             echo "Pulling new image"
             docker pull ${{ env.REGISTRY_IMAGE }}:latest
 
-            echo " Starting container"
+            echo "Starting container"
             docker compose up -d ${{ env.CONTAINER_NAME }} celery celery_beat
 
-            echo " Waiting ${{ env.HEALTH_DELAY }} seconds for health check"
+            echo "Waiting ${{ env.HEALTH_DELAY }} seconds for health check"
             sleep ${{ env.HEALTH_DELAY }}
 
-            echo " Checking container health..."
+            echo "Checking container health..."
             STATUS=$(docker inspect --format='{{json .State.Health.Status}}' ${{ env.CONTAINER_NAME }})
 
             echo "Health status: $STATUS"
 
             if [ "$STATUS" != "\"healthy\"" ]; then
               echo "ERROR: Container is not healthy"
+              echo "--- Container logs ---"
+              docker logs ${{ env.CONTAINER_NAME }} --tail 50
               exit 1
             fi
 
