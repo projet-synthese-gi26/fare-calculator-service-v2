@@ -50,11 +50,11 @@ services:
       db:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health/"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health/')"]
       interval: 30s
       timeout: 10s
-      retries: 3
-      start_period: 80s  # Augmenté à 80s pour être très large sur l'import des données
+      retries: 5
+      start_period: 120s
 
   celery_worker:
     build: .
