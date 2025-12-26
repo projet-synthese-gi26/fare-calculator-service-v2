@@ -3,14 +3,16 @@ version: "3.8"
 services:
   db:
     image: postgres:15
+    container_name: fare-calculator-db
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - fare_calculator_postgres_data:/var/lib/postgresql/data
     environment:
       - POSTGRES_DB=fare_calculator
       - POSTGRES_USER=fox
       - POSTGRES_PASSWORD=password123
+    # Port interne 5432, externe 5433 pour éviter conflit avec PostgreSQL existant
     ports:
-      - "5432:5432"
+      - "5433:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U fox -d fare_calculator"]
       interval: 10s
@@ -19,8 +21,10 @@ services:
 
   redis:
     image: redis:7-alpine
+    container_name: fare-calculator-redis
+    # Port interne 6379, externe 6380 pour éviter conflit
     ports:
-      - "6379:6379"
+      - "6380:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -29,20 +33,19 @@ services:
 
   # Service principal (Django)
   fare-calculator-service:
-    build: .
+    image: ghcr.io/projet-synthese-gi26/fare-calculator-service:latest
     container_name: fare-calculator-service
-    # On retire le volume en prod pour utiliser le code de l'image
-    # volumes:
-    #   - .:/app
     ports:
       - "8000:8000"
     env_file:
       - .env
     environment:
+      # Ces valeurs écrasent celles du .env pour la prod Docker
       - POSTGRES_HOST=db
       - POSTGRES_DB=fare_calculator
       - POSTGRES_USER=fox
       - POSTGRES_PASSWORD=password123
+      - POSTGRES_PORT=5432
       - REDIS_URL=redis://redis:6379/1
     depends_on:
       redis:
@@ -54,33 +57,40 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 120s
+      start_period: 90s
+    restart: unless-stopped
 
   celery_worker:
-    build: .
+    image: ghcr.io/projet-synthese-gi26/fare-calculator-service:latest
+    container_name: fare-calculator-celery-worker
     command: celery -A fare_calculator worker -l info
-    # volumes:
-    #   - .:/app
     env_file:
       - .env
+    environment:
+      - POSTGRES_HOST=db
+      - REDIS_URL=redis://redis:6379/1
     depends_on:
       redis:
         condition: service_healthy
       fare-calculator-service:
         condition: service_started
+    restart: unless-stopped
 
   celery_beat:
-    build: .
+    image: ghcr.io/projet-synthese-gi26/fare-calculator-service:latest
+    container_name: fare-calculator-celery-beat
     command: celery -A fare_calculator beat -l info
-    # volumes:
-    #   - .:/app
     env_file:
       - .env
+    environment:
+      - POSTGRES_HOST=db
+      - REDIS_URL=redis://redis:6379/1
     depends_on:
       redis:
         condition: service_healthy
       fare-calculator-service:
         condition: service_started
+    restart: unless-stopped
 
 volumes:
-  postgres_data:
+  fare_calculator_postgres_data:
