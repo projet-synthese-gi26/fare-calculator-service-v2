@@ -12,6 +12,10 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 
 from pathlib import Path
 import os
+from dotenv import load_dotenv
+
+# Charger le .env immédiatement pour que les variables soient disponibles
+load_dotenv()
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -98,12 +102,18 @@ DATABASES = {
 
 # Si POSTGRES_DB est défini dans l'environnement, basculer sur PostgreSQL
 if os.getenv('POSTGRES_DB'):
+    # En dev local (Windows) avec Postgres installé en natif, 'db' ne fonctionnera pas.
+    # On force 'localhost' si on détecte Windows ET que l'hôte indiqué est 'db'.
+    db_host = os.getenv('POSTGRES_HOST', 'localhost')
+    if os.name == 'nt' and db_host == 'db':
+        db_host = 'localhost'
+
     DATABASES['default'] = {
         'ENGINE': 'django.db.backends.postgresql',
         'NAME': os.getenv('POSTGRES_DB'),
         'USER': os.getenv('POSTGRES_USER', 'fox'),
         'PASSWORD': os.getenv('POSTGRES_PASSWORD', ''),
-        'HOST': os.getenv('POSTGRES_HOST', 'localhost'),
+        'HOST': db_host,
         'PORT': os.getenv('POSTGRES_PORT', '5432'),
     }
 
@@ -194,10 +204,6 @@ CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = 'Africa/Douala'  # Pour Cameroun
-
-import os
-from dotenv import load_dotenv
-load_dotenv()  # Charge .env
 
 # ==============================================================================
 # CONFIGURATION APIs EXTERNES

@@ -27,6 +27,9 @@ COPY . .
 
 RUN useradd -m appuser
 
+# S'assurer que le script d'initialisation est exécutable
+USER root
+RUN chmod +x /app/init-db.sh
 RUN mkdir -p /app/logs && chown -R appuser:appuser /app
 USER appuser
 
@@ -35,4 +38,5 @@ EXPOSE 8000
 ENV PYTHONUNBUFFERED=1
 ENV DJANGO_SETTINGS_MODULE=fare_calculator.settings
 
-CMD ["sh", "-c", "python manage.py makemigrations && python manage.py migrate && python manage.py runserver 0.0.0.0:8000"]
+# Utiliser le script d'initialisation intelligente
+CMD ["/app/init-db.sh"]
