@@ -1,0 +1,78 @@
+{
+  "accuracy": 0.4,
+  "f1_macro": 0.12307692307692306,
+  "f1_weighted": 0.36923076923076914,
+  "tolerance_1_class": 0.9,
+  "n_classes_total": 18,
+  "n_classes_present": 3,
+  "classes_present": [
+    300,
+    350,
+    400
+  ],
+  "n_train": 36,
+  "n_test": 10,
+  "features_used": [
+    "distance_km",
+    "duree_min",
+    "sinuosite_indice",
+    "nb_virages",
+    "force_virages",
+    "congestion_moyen",
+    "parametre_culture",
+    "meteo_bin",
+    "periode_bin",
+    "zone_bin",
+    "distance_vol_oiseau",
+    "sinuosite_reelle",
+    "vitesse_kmh"
+  ],
+  "best_params": {
+    "max_depth": 10,
+    "min_samples_leaf": 1,
+    "min_samples_split": 5,
+    "n_estimators": 300
+  },
+  "feature_importance": [
+    {
+      "Feature": "distance_vol_oiseau",
+      "Importance": 0.18508467337497903
+    },
+    {
+      "Feature": "distance_km",
+      "Importance": 0.17998837796286118
+    },
+    {
+      "Feature": "duree_min",
+      "Importance": 0.14573593111772482
+    },
+    {
+      "Feature": "vitesse_kmh",
+      "Importance": 0.12759064770368111
+    },
+    {
+      "Feature": "sinuosite_reelle",
+      "Importance": 0.1272644199603457
+    },
+    {
+      "Feature": "parametre_culture",
+      "Importance": 0.11659367204227254
+    },
+    {
+      "Feature": "congestion_moyen",
+      "Importance": 0.10998983460824184
+    },
+    {
+      "Feature": "meteo_bin",
+      "Importance": 0.007752443229893749
+    },
+    {
+      "Feature": "periode_bin",
+      "Importance": 0.0
+    },
+    {
+      "Feature": "zone_bin",
+      "Importance": 0.0
+    }
+  ]
+}

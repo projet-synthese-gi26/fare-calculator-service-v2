@@ -1,0 +1,1056 @@
+openapi: 3.0.3
+info:
+  title: Fare Calculator API
+  version: 2.0.0
+  description: API REST pour estimation prix taxi au Cameroun
+  contact:
+    email: donfackarthur750@gmail.com
+paths:
+  /api/add-trajet/:
+    post:
+      operationId: add_trajet_create
+      description: Endpoint POST /api/add-trajet/
+      tags:
+      - add-trajet
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Trajet'
+        required: true
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Trajet'
+          description: ''
+  /api/estimate/:
+    get:
+      operationId: estimate_retrieve
+      description: Endpoint GET /api/estimate/ avec query params (conversion vers
+        format POST).
+      tags:
+      - estimate
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EstimateInput'
+          description: ''
+    post:
+      operationId: estimate_create
+      description: "\n        Endpoint principal d'estimation de prix.\n        \n
+        \       **Flexibilité des paramètres :**\n        - Les coordonnées (`lat`/`lon`)
+        sont **optionnelles** si un nom de lieu (`label`) est fourni.\n        - L'API
+        effectuera un géocodage automatique si nécessaire.\n        - Les paramètres
+        `heure`, `meteo`, `type_zone` sont **optionnels** (détectés automatiquement
+        si omis).\n        \n        **Exemple minimaliste (Noms de lieux uniquement)
+        :**\n        ```json\n        {\n            \"depart\": {\"label\": \"Poste
+        Centrale\"},\n            \"arrivee\": {\"label\": \"Mvan\"}\n        }\n
+        \       ```\n        "
+      tags:
+      - estimate
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EstimateInput'
+        required: true
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PredictionOutput'
+          description: ''
+  /api/health/:
+    get:
+      operationId: health_retrieve
+      description: |-
+        View santé API : GET /api/health/
+
+        Vérifie :
+            - Django répond
+            - BD accessible
+            - Redis/Celery connecté
+            - APIs externes (Mapbox, Nominatim, OpenMeteo) accessibles (optionnel)
+
+        Retourne :
+            {
+                "status": "healthy",
+                "timestamp": "2023-11-05T14:30:00Z",
+                "checks": {
+                    "database": "ok",
+                    "redis": "ok",
+                    "mapbox": "ok",
+                    "nominatim": "ok",
+                    "openmeteo": "ok"
+                }
+            }
+      tags:
+      - health
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthCheck'
+          description: ''
+  /api/points/:
+    get:
+      operationId: points_list
+      description: |-
+        ViewSet lecture seule pour Points d'intérêt.
+
+        Endpoints :
+            GET /api/points/ : Liste tous points
+            GET /api/points/{id}/ : Détail point
+            GET /api/points/?quartier=Ekounou : Filtrage par quartier
+            GET /api/points/?ville=Yaoundé : Filtrage par ville
+
+        Utilisé principalement admin/debug. Frontend utilise Search API Mapbox pour auto-complétion.
+      parameters:
+      - in: query
+        name: arrondissement
+        schema:
+          type: string
+      - in: query
+        name: quartier
+        schema:
+          type: string
+      - in: query
+        name: ville
+        schema:
+          type: string
+      tags:
+      - points
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Point'
+          description: ''
+  /api/points/{id}/:
+    get:
+      operationId: points_retrieve
+      description: |-
+        ViewSet lecture seule pour Points d'intérêt.
+
+        Endpoints :
+            GET /api/points/ : Liste tous points
+            GET /api/points/{id}/ : Détail point
+            GET /api/points/?quartier=Ekounou : Filtrage par quartier
+            GET /api/points/?ville=Yaoundé : Filtrage par ville
+
+        Utilisé principalement admin/debug. Frontend utilise Search API Mapbox pour auto-complétion.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this Point d'Intérêt.
+        required: true
+      tags:
+      - points
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Point'
+          description: ''
+  /api/schema/:
+    get:
+      operationId: schema_retrieve
+      description: |-
+        OpenApi3 schema for this API. Format can be selected via content negotiation.
+
+        - YAML: application/vnd.oai.openapi
+        - JSON: application/vnd.oai.openapi+json
+      parameters:
+      - in: query
+        name: format
+        schema:
+          type: string
+          enum:
+          - json
+          - yaml
+      - in: query
+        name: lang
+        schema:
+          type: string
+          enum:
+          - af
+          - ar
+          - ar-dz
+          - ast
+          - az
+          - be
+          - bg
+          - bn
+          - br
+          - bs
+          - ca
+          - ckb
+          - cs
+          - cy
+          - da
+          - de
+          - dsb
+          - el
+          - en
+          - en-au
+          - en-gb
+          - eo
+          - es
+          - es-ar
+          - es-co
+          - es-mx
+          - es-ni
+          - es-ve
+          - et
+          - eu
+          - fa
+          - fi
+          - fr
+          - fy
+          - ga
+          - gd
+          - gl
+          - he
+          - hi
+          - hr
+          - hsb
+          - hu
+          - hy
+          - ia
+          - id
+          - ig
+          - io
+          - is
+          - it
+          - ja
+          - ka
+          - kab
+          - kk
+          - km
+          - kn
+          - ko
+          - ky
+          - lb
+          - lt
+          - lv
+          - mk
+          - ml
+          - mn
+          - mr
+          - ms
+          - my
+          - nb
+          - ne
+          - nl
+          - nn
+          - os
+          - pa
+          - pl
+          - pt
+          - pt-br
+          - ro
+          - ru
+          - sk
+          - sl
+          - sq
+          - sr
+          - sr-latn
+          - sv
+          - sw
+          - ta
+          - te
+          - tg
+          - th
+          - tk
+          - tr
+          - tt
+          - udm
+          - ug
+          - uk
+          - ur
+          - uz
+          - vi
+          - zh-hans
+          - zh-hant
+      tags:
+      - schema
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/vnd.oai.openapi:
+              schema:
+                type: object
+                additionalProperties: {}
+            application/yaml:
+              schema:
+                type: object
+                additionalProperties: {}
+            application/vnd.oai.openapi+json:
+              schema:
+                type: object
+                additionalProperties: {}
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/trajets/:
+    get:
+      operationId: trajets_list
+      description: |-
+        ViewSet CRUD pour Trajets (Lecture et Création uniquement).
+
+        Endpoints :
+            GET /api/trajets/ : Liste tous trajets
+            POST /api/trajets/ : Créer nouveau trajet
+            GET /api/trajets/{id}/ : Détail trajet
+            GET /api/trajets/?heure=matin : Filtrage par heure
+            GET /api/trajets/?meteo=1 : Filtrage par météo
+            GET /api/trajets/?type_zone=0 : Filtrage par type zone
+
+        Note: Modification (PUT/PATCH) et Suppression (DELETE) désactivées via API.
+        Utilisé pour contribution communautaire (POST depuis frontend) et admin/debug.
+      parameters:
+      - in: query
+        name: heure
+        schema:
+          type: string
+          nullable: true
+          title: Tranche horaire
+          enum:
+          - apres-midi
+          - matin
+          - nuit
+          - soir
+        description: |-
+          Heure du trajet. Si null, déduire via datetime.now() au moment de l'ajout.
+
+          * `matin` - Matin (6h-12h)
+          * `apres-midi` - Après-midi (12h-18h)
+          * `soir` - Soir (18h-22h)
+          * `nuit` - Nuit (22h-6h)
+      - in: query
+        name: meteo
+        schema:
+          type: integer
+      - in: query
+        name: route_classe_dominante
+        schema:
+          type: string
+      - in: query
+        name: type_zone
+        schema:
+          type: integer
+      tags:
+      - trajets
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Trajet'
+          description: ''
+    post:
+      operationId: trajets_create
+      description: |-
+        ViewSet CRUD pour Trajets (Lecture et Création uniquement).
+
+        Endpoints :
+            GET /api/trajets/ : Liste tous trajets
+            POST /api/trajets/ : Créer nouveau trajet
+            GET /api/trajets/{id}/ : Détail trajet
+            GET /api/trajets/?heure=matin : Filtrage par heure
+            GET /api/trajets/?meteo=1 : Filtrage par météo
+            GET /api/trajets/?type_zone=0 : Filtrage par type zone
+
+        Note: Modification (PUT/PATCH) et Suppression (DELETE) désactivées via API.
+        Utilisé pour contribution communautaire (POST depuis frontend) et admin/debug.
+      tags:
+      - trajets
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Trajet'
+        required: true
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Trajet'
+          description: ''
+  /api/trajets/{id}/:
+    get:
+      operationId: trajets_retrieve
+      description: |-
+        ViewSet CRUD pour Trajets (Lecture et Création uniquement).
+
+        Endpoints :
+            GET /api/trajets/ : Liste tous trajets
+            POST /api/trajets/ : Créer nouveau trajet
+            GET /api/trajets/{id}/ : Détail trajet
+            GET /api/trajets/?heure=matin : Filtrage par heure
+            GET /api/trajets/?meteo=1 : Filtrage par météo
+            GET /api/trajets/?type_zone=0 : Filtrage par type zone
+
+        Note: Modification (PUT/PATCH) et Suppression (DELETE) désactivées via API.
+        Utilisé pour contribution communautaire (POST depuis frontend) et admin/debug.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this Trajet.
+        required: true
+      tags:
+      - trajets
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Trajet'
+          description: ''
+  /api/trajets/stats/:
+    get:
+      operationId: trajets_stats_retrieve
+      description: |-
+        Endpoint stats globales trajets : /api/trajets/stats/
+
+        Retourne :
+            - Nombre total trajets
+            - Prix moyen, min, max
+            - Distance moyenne
+            - Répartition par heure, météo, type zone
+
+        JSON output :
+            {
+                "total_trajets": 150,
+                "prix": {"moyen": 250, "min": 100, "max": 500},
+                "distance_moyenne": 4800,
+                "repartition_heure": {"matin": 50, "apres-midi": 40, ...},
+                "repartition_meteo": {0: 80, 1: 40, ...},
+                "repartition_zone": {0: 100, 1: 30, 2: 20}
+            }
+      tags:
+      - trajets
+      security:
+      - cookieAuth: []
+      - basicAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Trajet'
+          description: ''
+components:
+  schemas:
+    BlankEnum:
+      enum:
+      - ''
+    EstimateInput:
+      type: object
+      description: |-
+        Serializer pour valider inputs requête /estimate (POST ou GET).
+
+        Validation et conversion :
+            - Accepte départ/arrivée sous forme coords OU nom (flexible)
+            - Si nom fourni, convertir vers coords via Nominatim
+            - Si coords, valider format [lat, lon] ou {lat: X, lon: Y}
+            - Variables optionnelles (heure, météo, type_zone, congestion_user) avec fallbacks
+
+        Exemples JSON input :
+            # Variante coords
+            {
+                "depart": {"lat": 3.8547, "lon": 11.5021},
+                "arrivee": {"lat": 3.8667, "lon": 11.5174},
+                "heure": "matin",  # optionnel
+                "meteo": 1,        # optionnel
+                "type_zone": 0,    # optionnel
+                "congestion_user": 5  # optionnel
+            }
+
+            # Variante noms (conversion auto)
+            {
+                "depart": "Polytechnique Yaoundé",
+                "arrivee": "Carrefour Ekounou",
+                # autres champs optionnels
+            }
+
+            # Variante mixte
+            {
+                "depart": {"lat": 3.8547, "lon": 11.5021},
+                "arrivee": "Carrefour Ekounou"
+            }
+
+        Après validation, attrs contiendra toujours :
+            {
+                "depart_coords": [lat, lon],
+                "arrivee_coords": [lat, lon],
+                "depart_label": str ou None,
+                "arrivee_label": str ou None,
+                "heure": str ou None,
+                "meteo": int ou None,
+                "type_zone": int ou None,
+                "congestion_user": int ou None
+            }
+      properties:
+        depart:
+          description: Coords {lat, lon} ou nom POI (str)
+        arrivee:
+          description: Coords {lat, lon} ou nom POI (str)
+        heure:
+          nullable: true
+          description: |-
+            Tranche horaire. Si null, actuelle détectée.
+
+            * `matin` - Matin (6h-12h)
+            * `apres-midi` - Après-midi (12h-18h)
+            * `soir` - Soir (18h-22h)
+            * `nuit` - Nuit (22h-6h)
+          oneOf:
+          - $ref: '#/components/schemas/HeureEnum'
+          - $ref: '#/components/schemas/NullEnum'
+        meteo:
+          type: integer
+          maximum: 3
+          minimum: 0
+          nullable: true
+          description: Code météo 0-3. Si null, détecté via OpenMeteo.
+        type_zone:
+          type: integer
+          maximum: 2
+          minimum: 0
+          nullable: true
+          description: Type zone 0-2. Si null, déduit routes Mapbox.
+        congestion_user:
+          type: integer
+          maximum: 10
+          minimum: 1
+          nullable: true
+          description: Niveau embouteillages utilisateur 1-10.
+      required:
+      - arrivee
+      - depart
+    EstimationsSupplementaires:
+      type: object
+      description: Estimations alternatives pour statut 'inconnu' (ML uniquement).
+      properties:
+        ml_prediction:
+          type: integer
+          nullable: true
+        features_utilisees:
+          allOf:
+          - $ref: '#/components/schemas/FeaturesUtilisees'
+          nullable: true
+    FeaturesUtilisees:
+      type: object
+      description: Transparence sur les features passées au modèle ML.
+      properties:
+        distance_metres:
+          type: number
+          format: double
+        duree_secondes:
+          type: number
+          format: double
+        congestion:
+          type: number
+          format: double
+          nullable: true
+        sinuosite:
+          type: number
+          format: double
+        nb_virages:
+          type: integer
+        heure:
+          type: string
+        meteo:
+          type: integer
+        type_zone:
+          type: integer
+      required:
+      - congestion
+      - distance_metres
+      - duree_secondes
+      - heure
+      - meteo
+      - nb_virages
+      - sinuosite
+      - type_zone
+    HealthCheck:
+      type: object
+      description: Schéma pour /api/health/
+      properties:
+        status:
+          type: string
+        timestamp:
+          type: string
+        checks:
+          type: object
+          additionalProperties:
+            type: string
+      required:
+      - checks
+      - status
+      - timestamp
+    HeureEnum:
+      enum:
+      - matin
+      - apres-midi
+      - soir
+      - nuit
+      type: string
+      description: |-
+        * `matin` - Matin (6h-12h)
+        * `apres-midi` - Après-midi (12h-18h)
+        * `soir` - Soir (18h-22h)
+        * `nuit` - Nuit (22h-6h)
+    NullEnum:
+      enum:
+      - null
+    Point:
+      type: object
+      description: |-
+        Serializer pour Point avec enrichissement automatique metadata administratives.
+
+        Workflow création :
+            1. User fournit coords (obligatoires) + optionnellement label
+            2. Si label manque, reverse-geocode via Nominatim ou Mapbox pour obtenir POI/quartier
+            3. Enrichir avec ville, quartier, arrondissement (via reverse geocoding)
+            4. Sauvegarder Point complet
+
+        Validation :
+            - Coords entre -90/90 lat, -180/180 lon (géré par models validators)
+            - Si coords hors Cameroun (détecté via reverse-geocode country_code != 'cm'), warning mais accepter
+
+        Exemples JSON input :
+            {
+                "coords_latitude": 3.8547,
+                "coords_longitude": 11.5021,
+                "label": "École Polytechnique Yaoundé"  # Optionnel
+            }
+
+        Exemples JSON output :
+            {
+                "id": 1,
+                "coords_latitude": 3.8547,
+                "coords_longitude": 11.5021,
+                "label": "École Polytechnique Yaoundé",
+                "ville": "Yaoundé",
+                "quartier": "Ngoa-Ekelle",
+                "arrondissement": "Yaoundé I",
+                "departement": "Mfoundi",
+                "created_at": "2023-11-05T14:30:00Z"
+            }
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        coords_latitude:
+          type: number
+          format: double
+          maximum: 90.0
+          minimum: -90.0
+          title: Latitude
+          description: Latitude décimale du point (ex. 3.8547). Validée entre -90
+            et 90.
+        coords_longitude:
+          type: number
+          format: double
+          maximum: 180.0
+          minimum: -180.0
+          title: Longitude
+          description: Longitude décimale du point (ex. 11.5021). Validée entre -180
+            et 180.
+        label:
+          type: string
+          title: Nom du POI
+          description: Nom du point d'intérêt connu des taxis (ex. 'Carrefour Ekounou').
+            Obtenu via Mapbox Search API.
+          maxLength: 255
+        ville:
+          type: string
+          nullable: true
+          description: Ville du point (ex. 'Yaoundé'). Utilisé pour filtrage queries.
+          maxLength: 100
+        quartier:
+          type: string
+          nullable: true
+          description: Quartier/sous-quartier (ex. 'Ngoa-Ekelle'). CRITIQUE pour filtrage
+            similarité avant calculs Mapbox.
+          maxLength: 100
+        arrondissement:
+          type: string
+          nullable: true
+          title: Arrondissement/Commune
+          description: Commune (ex. 'Yaoundé II'). Extrait de 'context' Mapbox Geocoding.
+          maxLength: 100
+        departement:
+          type: string
+          nullable: true
+          title: Département
+          description: Département (ex. 'Mfoundi' pour Yaoundé). Fallback filtrage
+            si quartier manque.
+          maxLength: 100
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+          title: Date de création
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+          title: Date de mise à jour
+      required:
+      - coords_latitude
+      - coords_longitude
+      - created_at
+      - id
+      - label
+      - updated_at
+    PredictionOutput:
+      type: object
+      description: |-
+        Serializer pour réponse estimation prix (DTO non-persistant).
+
+        Statut hiérarchique (exact/similaire/inconnu) avec prix, ajustements, fiabilité, message.
+        Pour le statut "inconnu", seul le fallback ML est retourné avec transparence des features.
+      properties:
+        statut:
+          allOf:
+          - $ref: '#/components/schemas/StatutEnum'
+          description: |-
+            Statut estimation : exact (match BD), similaire (ajusté), inconnu (fallbacks).
+
+            * `exact` - exact
+            * `similaire` - similaire
+            * `inconnu` - inconnu
+        prix_moyen:
+          type: number
+          format: double
+          description: Prix moyen estimé en CFA.
+        prix_min:
+          type: number
+          format: double
+          nullable: true
+          description: Prix minimal observé (si statut exact/similaire).
+        prix_max:
+          type: number
+          format: double
+          nullable: true
+          description: Prix maximal observé (si statut exact/similaire).
+        distance:
+          type: number
+          format: double
+          nullable: true
+          description: Distance du trajet en mètres (via Mapbox ou Haversine).
+        duree:
+          type: number
+          format: double
+          nullable: true
+          description: Durée estimée du trajet en secondes.
+        estimations_supplementaires:
+          allOf:
+          - $ref: '#/components/schemas/EstimationsSupplementaires'
+          nullable: true
+          description: (Inconnu) Fallback ML uniquement, avec features utilisées.
+        ajustements_appliques:
+          type: object
+          additionalProperties: {}
+          description: Ajustements prix (congestion, météo, sinuosité, heure) avec
+            explications.
+        fiabilite:
+          type: number
+          format: double
+          maximum: 1.0
+          minimum: 0.0
+          nullable: true
+          description: Score fiabilité 0-1 (basé sur nombre trajets similaires, variance
+            prix).
+        message:
+          type: string
+          description: Message explicatif pour utilisateur (ex. 'Basé sur 10 trajets').
+        details_trajet:
+          type: object
+          additionalProperties: {}
+          description: Détails techniques (distance, durée, congestion, météo utilisée).
+        suggestions:
+          type: array
+          items:
+            type: string
+          description: Suggestions pour utilisateur (ex. 'Ajoutez votre prix après
+            trajet').
+      required:
+      - fiabilite
+      - message
+      - prix_max
+      - prix_min
+      - prix_moyen
+      - statut
+    StatutEnum:
+      enum:
+      - exact
+      - similaire
+      - inconnu
+      type: string
+      description: |-
+        * `exact` - exact
+        * `similaire` - similaire
+        * `inconnu` - inconnu
+    Trajet:
+      type: object
+      description: |-
+        Serializer pour Trajet avec validation, enrichissement Mapbox, et fallbacks.
+
+        Workflow création complexe :
+            1. Valider inputs (points départ/arrivée, prix obligatoires)
+            2. Appliquer fallbacks variables optionnelles :
+                - Heure null -> datetime.now() -> tranche (matin/après-midi/soir/nuit)
+                - Météo null -> OpenMeteo API sur coords départ (ou moyenne départ/arrivée)
+                - Type zone null -> déduit après appel Mapbox (classes routes dominante)
+            3. Appeler Mapbox Directions API (driving-traffic, annotations complètes)
+            4. Parser JSON Mapbox pour extraire :
+                - Distance, durée (validation cohérence avec input si fourni)
+                - Congestion moyenne (via extract_congestion_moyen)
+                - Sinuosité (via calculate_sinuosite_from_mapbox_data du modèle)
+                - Classe route dominante, nb virages, force virages
+            5. Gérer données Mapbox manquantes (fallbacks : congestion=50 urbain, sinuosité=1.0)
+            6. Sauvegarder Trajet enrichi
+
+        Validation :
+            - Prix > 0
+            - Points départ != arrivée (vérifier coords différentes)
+            - Si distance fournie par user, valider cohérence avec Mapbox (tolérance ±20%)
+
+        Exemples JSON input :
+            {
+                "point_depart": {
+                    "coords_latitude": 3.8547,
+                    "coords_longitude": 11.5021,
+                    "label": "Polytechnique Yaoundé"
+                },
+                "point_arrivee": {
+                    "coords_latitude": 3.8667,
+                    "coords_longitude": 11.5174,
+                    "label": "Carrefour Ekounou"
+                },
+                "prix": 200,
+                "heure": "matin",  # ou null
+                "meteo": 1,        # ou null
+                "type_zone": 0,    # ou null
+                "congestion_user": 5  # optionnel
+            }
+
+        Exemples JSON output :
+            {
+                "id": 1,
+                "point_depart": {...},  # Point complet
+                "point_arrivee": {...},
+                "distance": 5212.5,
+                "prix": 200,
+                "heure": "matin",
+                "meteo": 1,
+                "type_zone": 0,
+                "congestion_user": 5,
+                "congestion_moyen": 42.3,  # Enrichi Mapbox
+                "sinuosite_indice": 2.48,
+                "route_classe_dominante": "primary",
+                "nb_virages": 7,
+                "force_virages": 68.5,
+                "duree_estimee": 780.0,
+                "date_ajout": "2023-11-05T14:30:00Z"
+            }
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        point_depart:
+          $ref: '#/components/schemas/Point'
+        point_arrivee:
+          $ref: '#/components/schemas/Point'
+        distance:
+          type: number
+          format: double
+          readOnly: true
+          title: Distance (mètres)
+          description: Distance routière via Mapbox Directions API (driving-traffic).
+            Inclut détours réels.
+        prix:
+          type: number
+          format: double
+          minimum: 0.0
+          title: Prix payé (CFA)
+          description: Prix réel payé par utilisateur en Francs CFA. Donnée cruciale
+            pour estimations communautaires.
+        heure:
+          nullable: true
+          title: Tranche horaire
+          description: |-
+            Heure du trajet. Si null, déduire via datetime.now() au moment de l'ajout.
+
+            * `matin` - Matin (6h-12h)
+            * `apres-midi` - Après-midi (12h-18h)
+            * `soir` - Soir (18h-22h)
+            * `nuit` - Nuit (22h-6h)
+          oneOf:
+          - $ref: '#/components/schemas/HeureEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+          - $ref: '#/components/schemas/NullEnum'
+        meteo:
+          type: integer
+          maximum: 3
+          minimum: 0
+          nullable: true
+          title: Code météo
+          description: 0=Soleil, 1=Pluie légère, 2=Pluie forte, 3=Orage. Si null,
+            appeler OpenMeteo API.
+        type_zone:
+          type: integer
+          maximum: 2
+          minimum: 0
+          nullable: true
+          title: Type de zone
+          description: 0=Urbaine, 1=Mixte, 2=Rurale. Si null, déduire via classes
+            routes Mapbox (primary=urbaine).
+        congestion_user:
+          type: integer
+          maximum: 10
+          minimum: 1
+          nullable: true
+          title: Congestion utilisateur (1-10)
+          description: Niveau embouteillages selon user (1=fluide, 10=bloqué). Complète
+            Mapbox pour zones non couvertes.
+        congestion_moyen:
+          type: number
+          format: double
+          readOnly: true
+          nullable: true
+          title: Congestion Mapbox (0-100)
+          description: Moyenne congestion segments Mapbox. Null si 'unknown' pour
+            tous segments (fréquent Cameroun).
+        sinuosite_indice:
+          type: number
+          format: double
+          readOnly: true
+          nullable: true
+          title: Indice de sinuosité
+          description: Ratio distance/ligne droite ou force virages (°/km). 1.0=droit,
+            >1.5=sinueux. Null si calcul échoue.
+        route_classe_dominante:
+          type: string
+          readOnly: true
+          nullable: true
+          title: Classe route dominante
+          description: '''primary'', ''secondary'', ''tertiary'', etc. via Mapbox
+            Streets v8. Null si indisponible.'
+        nb_virages:
+          type: integer
+          readOnly: true
+          nullable: true
+          title: Nombre de virages
+          description: Nombre maneuvers type 'turn'/'rotary' dans itinéraire Mapbox.
+        force_virages:
+          type: number
+          format: double
+          readOnly: true
+          nullable: true
+          title: Force virages (°/km)
+          description: Somme |bearing_before - bearing_after| / distance_km. Mesure
+            complexité itinéraire.
+        duree_estimee:
+          type: number
+          format: double
+          readOnly: true
+          nullable: true
+          title: Durée estimée (secondes)
+          description: Durée via Mapbox avec trafic. Pour info uniquement.
+        date_ajout:
+          type: string
+          format: date-time
+          readOnly: true
+          title: Date d'ajout
+          description: Timestamp ajout trajet par utilisateur.
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - congestion_moyen
+      - date_ajout
+      - distance
+      - duree_estimee
+      - force_virages
+      - id
+      - nb_virages
+      - point_arrivee
+      - point_depart
+      - prix
+      - route_classe_dominante
+      - sinuosite_indice
+      - updated_at
+  securitySchemes:
+    basicAuth:
+      type: http
+      scheme: basic
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: sessionid
