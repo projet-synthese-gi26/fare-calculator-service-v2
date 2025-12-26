@@ -101,7 +101,8 @@ DATABASES = {
 }
 
 # Si POSTGRES_DB est défini dans l'environnement, basculer sur PostgreSQL
-if os.getenv('POSTGRES_DB'):
+# Sauf si on est dans un environnement CI (GitHub Actions) sans base Postgres configurée.
+if os.getenv('POSTGRES_DB') and os.getenv('GITHUB_ACTIONS') != 'true':
     # En dev local (Windows) avec Postgres installé en natif, 'db' ne fonctionnera pas.
     # On force 'localhost' si on détecte Windows ET que l'hôte indiqué est 'db'.
     db_host = os.getenv('POSTGRES_HOST', 'localhost')
