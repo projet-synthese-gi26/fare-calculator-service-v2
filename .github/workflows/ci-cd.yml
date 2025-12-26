@@ -92,8 +92,8 @@ jobs:
 
             cd /root/projet_synthese/infra
 
-            echo "Stopping container"
-            docker compose down ${{ env.CONTAINER_NAME }} celery celery_beat
+            echo "Stopping all services"
+            docker compose down
 
             echo "Removing old image"
             docker rmi -f ${{ env.REGISTRY_IMAGE }}:latest || true
@@ -101,8 +101,13 @@ jobs:
             echo "Pulling new image"
             docker pull ${{ env.REGISTRY_IMAGE }}:latest
 
-            echo "Starting container"
-            docker compose up -d ${{ env.CONTAINER_NAME }} celery celery_beat
+            echo "Starting ALL services (db, redis, app, celery)"
+            docker compose up -d db redis
+            
+            echo "Waiting 10s for database to be ready..."
+            sleep 10
+            
+            docker compose up -d fare-calculator-service celery_worker celery_beat
 
             echo "Waiting ${{ env.HEALTH_DELAY }} seconds for health check"
             sleep ${{ env.HEALTH_DELAY }}
