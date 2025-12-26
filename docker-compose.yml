@@ -27,8 +27,10 @@ services:
       timeout: 5s
       retries: 5
 
-  web:
+  # Service principal (Django)
+  fare-calculator-service:
     build: .
+    container_name: fare-calculator-service
     volumes:
       - .:/app
     ports:
@@ -40,6 +42,12 @@ services:
         condition: service_healthy
       db:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s  # Laisse le temps aux migrations et loaddata de finir
 
   celery_worker:
     build: .
@@ -51,7 +59,7 @@ services:
     depends_on:
       redis:
         condition: service_healthy
-      web:
+      fare-calculator-service:
         condition: service_started
 
   celery_beat:
@@ -64,7 +72,7 @@ services:
     depends_on:
       redis:
         condition: service_healthy
-      web:
+      fare-calculator-service:
         condition: service_started
 
 volumes:

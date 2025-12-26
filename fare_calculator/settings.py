@@ -30,7 +30,7 @@ SECRET_KEY = 'django-insecure-jd8m!=^lc83ov2q@l91kaj2b))lhv)$4mr@577e(yt*7-(q+**
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ["fare-calculator-service.pynfi.com", "localhost", "127.0.0.1"]
+ALLOWED_HOSTS = ["fare-calculator-service.pynfi.com", "localhost", "127.0.0.1", ".pynfi.com"]
 
 # Configuration de sécurité pour le déploiement (Vercel + Pynfi)
 CSRF_TRUSTED_ORIGINS = [
@@ -305,12 +305,19 @@ LOGGING = {
 # ---------------------------------------------------------------------------
 # CORS (Cross-Origin Resource Sharing) - allow frontend preflight OPTIONS
 # ---------------------------------------------------------------------------
+CORS_ALLOW_ALL_ORIGINS = True  # Temporairement pour débloquer la prod et tester
+
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "http://localhost:3000",
     "http://127.0.0.1:5173",
     "https://fare-calculator-front.vercel.app",
     "https://fare-calculator-service.pynfi.com",
+]
+
+# Support des sous-domaines Vercel si besoin
+CORS_ALLOWED_ORIGIN_REGEXES = [
+    r"^https://.*\.vercel\.app$",
 ]
 
 CORS_ALLOW_CREDENTIALS = True
