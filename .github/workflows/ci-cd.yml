@@ -80,7 +80,7 @@ jobs:
 
       - name: Copy config files to server
         run: |
-          scp -o StrictHostKeyChecking=no docker-compose.yml ${{ secrets.REMOTE_USER }}@${{ secrets.REMOTE_HOST }}:/root/projet_synthese/infra/docker-compose-fare-calulator.yml
+          scp -o StrictHostKeyChecking=no docker-compose.yml ${{ secrets.REMOTE_USER }}@${{ secrets.REMOTE_HOST }}:/root/projet_synthese/infra/docker-compose-fare-calculator.yml
           # Créer un .env minimal pour la prod
           cat << 'ENVFILE' > .env.prod
           POSTGRES_DB=fare_calculator
@@ -104,7 +104,7 @@ jobs:
             cd /root/projet_synthese/infra
 
             echo "Stopping fare-calculator services"
-            docker compose -f docker-compose-fare-calulator.yml down fare-calculator-service celery_worker celery_beat fare-calculator-db fare-calculator-redis || true
+            docker compose -f docker-compose-fare-calculator.yml down fare-calculator-service celery_worker celery_beat fare-calculator-db fare-calculator-redis || true
 
             echo "Removing old image"
             docker rmi -f ${{ env.REGISTRY_IMAGE }}:latest || true
@@ -113,13 +113,13 @@ jobs:
             docker pull ${{ env.REGISTRY_IMAGE }}:latest
 
             echo "Starting database and redis first"
-            docker compose -f docker-compose-fare-calulator up -d db redis
+            docker compose -f docker-compose-fare-calculator up -d db redis
             
             echo "Waiting 15s for database to be ready..."
             sleep 15
 
             echo "Starting fare-calculator services"
-            docker compose -f docker-compose-fare-calulator up -d fare-calculator-service celery_worker celery_beat
+            docker compose -f docker-compose-fare-calculator up -d fare-calculator-service celery_worker celery_beat
 
             echo "Waiting ${{ env.HEALTH_DELAY }} seconds for health check"
             sleep ${{ env.HEALTH_DELAY }}
