@@ -600,6 +600,26 @@ class EstimateView(APIView):
             # Arrondir vers classe valide
             prix_final = self._arrondir_prix_vers_classe(prix_final)
             
+            # ============================================================
+            # ÉTAPE 6 : AJUSTEMENT RL (Reinforcement Learning)
+            # ============================================================
+            try:
+                from .ml.rl_agent import FareAdjustmentAgent
+                rl_agent = FareAdjustmentAgent()
+                rl_factor = rl_agent.predict_action(heure, meteo, type_zone)
+                
+                if rl_factor != 0.0:
+                    ajustement_rl = int(prix_final * rl_factor)
+                    prix_final += ajustement_rl
+                    ajustements['ajustement_rl'] = ajustement_rl
+                    ajustements['note_rl'] = f"{'+' if rl_factor > 0 else ''}{int(rl_factor*100)}% (Ajustement intelligent)"
+                    logger.info(f"[RL] Facteur {rl_factor} -> Ajustement {ajustement_rl} CFA")
+                    
+                    # Re-arrondir après ajustement RL
+                    prix_final = self._arrondir_prix_vers_classe(prix_final)
+            except Exception as e:
+                logger.error(f"[RL] Erreur prediction agent: {e}")
+            
             prediction_data = {
                 'statut': similar_result['statut'],
                 'prix_moyen': prix_final,
@@ -1658,6 +1678,26 @@ class AddTrajetView(APIView):
         try:
             trajet = serializer.save()
             logger.info(f"Trajet créé : {trajet}")
+            
+            # ============================================================
+            # TRIGGER RL BATCH (Every 5 trips)
+            # ============================================================
+            try:
+                from django.core.cache import cache
+                from .tasks import train_rl_on_recent_trips
+                
+                # Incrémenter compteur
+                count = cache.incr('rl_trajets_count', 1)
+                
+                if count >= 5:
+                    logger.info(f"[RL] Triggering batch training (count={count})")
+                    train_rl_on_recent_trips.delay(batch_size=5)
+                    cache.set('rl_trajets_count', 0) # Reset
+            except Exception as e:
+                logger.warning(f"[RL] Failed to trigger batch training: {e}")
+                # Si clé n'existe pas, incr peut échouer selon backend, fallback
+                cache.set('rl_trajets_count', 1)
+
             return Response(TrajetSerializer(trajet).data, status=status.HTTP_201_CREATED)
         except Exception as e:
             logger.error(f"Erreur création trajet : {e}")
