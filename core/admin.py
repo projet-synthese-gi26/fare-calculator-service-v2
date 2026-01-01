@@ -2,7 +2,11 @@ from django.contrib import admin
 from django.utils.html import format_html
 from django.urls import reverse
 from django.utils.safestring import mark_safe
-from .models import Point, Trajet, ApiKey, Publicite
+from django.utils import timezone
+from .models import (
+    Point, Trajet, ApiKey, Publicite,
+    OffreAbonnement, Abonnement, ServiceMarketplace, ContactInfo
+)
 
 
 @admin.register(ApiKey)
@@ -169,18 +173,308 @@ class TrajetAdmin(admin.ModelAdmin):
     meteo_display.short_description = "Météo"
 
 
+class AbonnementInline(admin.TabularInline):
+    """
+    Inline pour gérer les abonnements directement depuis la page Publicité.
+    Permet à l'admin d'ajouter/modifier des abonnements sans quitter la page.
+    """
+    model = Abonnement
+    extra = 1  # Affiche 1 formulaire vide pour ajouter
+    fields = ['offre', 'statut', 'date_debut', 'date_fin', 'jours_restants_display']
+    readonly_fields = ['jours_restants_display']
+    
+    def jours_restants_display(self, obj):
+        """Affiche les jours restants avec sécurité."""
+        try:
+            if not obj or not obj.pk:
+                return "-"
+            jours = obj.jours_restants() if hasattr(obj, 'jours_restants') else 0
+            if jours <= 0:
+                return mark_safe('<span style="color: red;">Expiré</span>')
+            elif jours <= 7:
+                return mark_safe(f'<span style="color: orange;">{jours} jours</span>')
+            return f"{jours} jours"
+        except Exception:
+            return "-"
+    jours_restants_display.short_description = "Jours restants"
+
+
 @admin.register(Publicite)
 class PubliciteAdmin(admin.ModelAdmin):
-    list_display = ['title', 'category', 'is_active', 'image_preview', 'created_at']
-    list_filter = ['category', 'is_active', 'created_at']
-    search_fields = ['title', 'description']
+    list_display = [
+        'title', 'nom_entreprise_safe', 'statut', 'is_active', 
+        'est_affichable_display', 'abonnement_actif', 'image_preview', 'created_at'
+    ]
+    list_filter = ['statut', 'category', 'is_active', 'created_at']
+    search_fields = ['nom_entreprise', 'title', 'description', 'contact_email']
     ordering = ['-created_at']
+    readonly_fields = ['created_at', 'updated_at']
+    inlines = [AbonnementInline]  # Ajoute l'inline pour les abonnements
+    
+    fieldsets = (
+        ('Informations Partenaire', {
+            'fields': ('nom_entreprise', 'contact_email', 'contact_telephone')
+        }),
+        ('Contenu Publicitaire', {
+            'fields': ('title', 'title_en', 'description', 'description_en', 
+                      'image_url', 'app_link', 'category', 'color')
+        }),
+        ('Statut', {
+            'fields': ('statut', 'is_active'),
+            'description': 'Le statut doit être "Active" et is_active=True + abonnement valide pour être affichée.'
+        }),
+        ('Métadonnées', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',)
+        }),
+    )
+    
+    def nom_entreprise_safe(self, obj):
+        """Affiche le nom d'entreprise avec valeur par défaut."""
+        return obj.nom_entreprise or "(Non défini)"
+    nom_entreprise_safe.short_description = "Entreprise"
+    nom_entreprise_safe.admin_order_field = 'nom_entreprise'
+    
+    def image_preview(self, obj):
+        """Affiche l'aperçu de l'image avec sécurité."""
+        try:
+            if obj and obj.image_url:
+                return mark_safe(f'<img src="{obj.image_url}" width="50" height="30" style="object-fit: cover; border-radius: 4px;" />')
+        except Exception:
+            pass
+        return "-"
+    image_preview.short_description = "Aperçu"
+    
+    def est_affichable_display(self, obj):
+        """Vérifie si la pub est réellement affichable avec sécurité."""
+        try:
+            if obj and hasattr(obj, 'est_affichable') and obj.est_affichable():
+                return mark_safe('<span style="color: green;">✅ Oui</span>')
+        except Exception:
+            pass
+        return mark_safe('<span style="color: red;">❌ Non</span>')
+    est_affichable_display.short_description = "Affichable?"
+    
+    def abonnement_actif(self, obj):
+        """Affiche l'abonnement actif s'il existe avec sécurité."""
+        try:
+            if not obj or not obj.pk:
+                return mark_safe('<span style="color: gray;">-</span>')
+            abo = obj.abonnements.filter(statut=Abonnement.STATUT_ACTIF).latest('date_debut')
+            jours = abo.jours_restants() if hasattr(abo, 'jours_restants') else 0
+            offre_nom = abo.offre.nom if abo.offre else "?"
+            if jours > 0:
+                return mark_safe(f'<span style="color: green;">{offre_nom} ({jours}j)</span>')
+            else:
+                return mark_safe(f'<span style="color: orange;">{offre_nom} (expiré)</span>')
+        except Abonnement.DoesNotExist:
+            return mark_safe('<span style="color: gray;">Aucun</span>')
+        except Exception:
+            return mark_safe('<span style="color: gray;">-</span>')
+    abonnement_actif.short_description = "Abonnement"
+    
+    actions = ['approuver_publicites', 'rejeter_publicites']
+    
+    @admin.action(description="✅ Approuver les publicités sélectionnées")
+    def approuver_publicites(self, request, queryset):
+        count = queryset.update(statut=Publicite.STATUT_APPROUVEE, is_active=True)
+        self.message_user(request, f"{count} publicité(s) approuvée(s).")
+    
+    @admin.action(description="❌ Rejeter les publicités sélectionnées")
+    def rejeter_publicites(self, request, queryset):
+        count = queryset.update(statut=Publicite.STATUT_REJETEE, is_active=False)
+        self.message_user(request, f"{count} publicité(s) rejetée(s).")
+
+
+@admin.register(OffreAbonnement)
+class OffreAbonnementAdmin(admin.ModelAdmin):
+    list_display = ['nom', 'duree_mois', 'prix_display', 'is_popular', 'is_active', 'ordre_affichage']
+    list_filter = ['is_active', 'is_popular', 'duree_mois']
+    search_fields = ['nom', 'description']
+    ordering = ['ordre_affichage', 'prix']
+    list_editable = ['ordre_affichage', 'is_active', 'is_popular']
+    
+    fieldsets = (
+        ('Informations', {
+            'fields': ('nom', 'duree_mois', 'prix', 'description')
+        }),
+        ('Affichage', {
+            'fields': ('is_active', 'is_popular', 'ordre_affichage'),
+            'description': 'L\'offre "populaire" sera mise en avant sur la page pricing.'
+        }),
+    )
+    
+    def prix_display(self, obj):
+        """Affiche le prix formaté avec sécurité."""
+        try:
+            if obj and obj.prix is not None:
+                return f"{obj.prix:,.0f} FCFA"
+        except Exception:
+            pass
+        return "-"
+    prix_display.short_description = "Prix"
+
+
+@admin.register(Abonnement)
+class AbonnementAdmin(admin.ModelAdmin):
+    list_display = [
+        'publicite_safe', 'offre_safe', 'statut', 'date_debut', 'date_fin', 
+        'jours_restants_display', 'est_expire_display'
+    ]
+    list_filter = ['statut', 'offre', 'date_debut']
+    search_fields = ['publicite__nom_entreprise', 'publicite__title', 'publicite__contact_email']
+    readonly_fields = ['created_at']
+    ordering = ['-created_at']
+    
+    fieldsets = (
+        ('Liaison', {
+            'fields': ('publicite', 'offre')
+        }),
+        ('Durée', {
+            'fields': ('date_debut', 'date_fin', 'statut'),
+            'description': 'La date de fin est calculée automatiquement si vous définissez la date de début.'
+        }),
+        ('Paiement', {
+            'fields': ('montant_paye', 'reference_paiement'),
+            'classes': ('collapse',)
+        }),
+        ('Métadonnées', {
+            'fields': ('created_at',),
+            'classes': ('collapse',)
+        }),
+    )
+    
+    def publicite_safe(self, obj):
+        """Affiche la publicité avec sécurité."""
+        try:
+            if obj and obj.publicite:
+                return obj.publicite.title or "(Sans titre)"
+        except Exception:
+            pass
+        return "-"
+    publicite_safe.short_description = "Publicité"
+    publicite_safe.admin_order_field = 'publicite__title'
+    
+    def offre_safe(self, obj):
+        """Affiche l'offre avec sécurité."""
+        try:
+            if obj and obj.offre:
+                return obj.offre.nom
+        except Exception:
+            pass
+        return "-"
+    offre_safe.short_description = "Offre"
+    offre_safe.admin_order_field = 'offre__nom'
+    
+    def jours_restants_display(self, obj):
+        """Affiche les jours restants avec sécurité."""
+        try:
+            if not obj or not obj.pk:
+                return "-"
+            jours = obj.jours_restants() if hasattr(obj, 'jours_restants') else 0
+            if jours <= 0:
+                return mark_safe('<span style="color: red;">Expiré</span>')
+            elif jours <= 7:
+                return mark_safe(f'<span style="color: orange;">{jours} jours</span>')
+            return f"{jours} jours"
+        except Exception:
+            return "-"
+    jours_restants_display.short_description = "Jours restants"
+    
+    def est_expire_display(self, obj):
+        """Affiche si expiré avec sécurité."""
+        try:
+            if not obj or not obj.pk:
+                return "-"
+            if hasattr(obj, 'est_expire') and obj.est_expire():
+                return mark_safe('<span style="color: red;">❌ Expiré</span>')
+            return mark_safe('<span style="color: green;">✅ Actif</span>')
+        except Exception:
+            return "-"
+    est_expire_display.short_description = "Statut réel"
+    
+    actions = ['mettre_a_jour_expirations']
+    
+    @admin.action(description="🔄 Mettre à jour les expirations")
+    def mettre_a_jour_expirations(self, request, queryset):
+        Abonnement.objects.mettre_a_jour_expirations()
+        self.message_user(request, "Expirations mises à jour.")
+
+
+@admin.register(ServiceMarketplace)
+class ServiceMarketplaceAdmin(admin.ModelAdmin):
+    list_display = ['nom', 'is_active', 'image_preview', 'ordre_affichage', 'created_at']
+    list_filter = ['is_active', 'created_at']
+    search_fields = ['nom', 'description']
+    ordering = ['ordre_affichage', '-created_at']
+    list_editable = ['is_active', 'ordre_affichage']
+    
+    fieldsets = (
+        ('Informations', {
+            'fields': ('nom', 'nom_en', 'description', 'description_en', 'image_url', 'lien_redirection')
+        }),
+        ('Apparence', {
+            'fields': ('icone', 'couleur'),
+            'classes': ('collapse',)
+        }),
+        ('Affichage', {
+            'fields': ('is_active', 'is_featured', 'ordre_affichage')
+        }),
+        ('Métadonnées', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',)
+        }),
+    )
+    readonly_fields = ['created_at', 'updated_at']
     
     def image_preview(self, obj):
         if obj.image_url:
-            return mark_safe(f'<img src="{obj.image_url}" width="50" height="30" style="object-fit: cover; border-radius: 4px;" />')
+            return mark_safe(f'<img src="{obj.image_url}" width="60" height="40" style="object-fit: cover; border-radius: 4px;" />')
         return "-"
     image_preview.short_description = "Aperçu"
+
+
+@admin.register(ContactInfo)
+class ContactInfoAdmin(admin.ModelAdmin):
+    list_display = ['email', 'telephone', 'whatsapp', 'has_socials', 'updated_at']
+    readonly_fields = ['updated_at']
+    
+    fieldsets = (
+        ('Contact Direct', {
+            'fields': ('email', 'telephone', 'whatsapp')
+        }),
+        ('Adresse & Horaires', {
+            'fields': ('adresse', 'horaires'),
+            'classes': ('collapse',)
+        }),
+        ('Réseaux Sociaux', {
+            'fields': ('facebook_url', 'twitter_url', 'instagram_url'),
+            'classes': ('collapse',)
+        }),
+        ('Métadonnées', {
+            'fields': ('updated_at',),
+            'classes': ('collapse',)
+        }),
+    )
+    
+    def has_socials(self, obj):
+        """Indique si des réseaux sociaux sont configurés."""
+        socials = [obj.facebook_url, obj.twitter_url, obj.instagram_url]
+        count = sum(1 for s in socials if s)
+        if count > 0:
+            return mark_safe(f'<span style="color: green;">{count} configuré(s)</span>')
+        return mark_safe('<span style="color: gray;">Aucun</span>')
+    has_socials.short_description = "Réseaux sociaux"
+    
+    def has_add_permission(self, request):
+        """Empêche la création de plusieurs ContactInfo (singleton)."""
+        if ContactInfo.objects.exists():
+            return False
+        return super().has_add_permission(request)
+    
+    def has_delete_permission(self, request, obj=None):
+        """Empêche la suppression du ContactInfo."""
+        return False
 
 
 # Personnalisation du site admin

@@ -5,6 +5,11 @@ Les modèles incluent :
 - Point : Points d'intérêt géolocalisés (POI, quartiers, carrefours)
 - Trajet : Trajets réels ajoutés par utilisateurs avec prix et variables contextuelles
 - ApiKey : Clés API pour authentification des requêtes externes
+- OffreAbonnement : Offres d'abonnement pour les partenaires publicitaires
+- Publicite : Publicités/Services partenaires avec gestion d'abonnements
+- Abonnement : Souscriptions des partenaires à des offres
+- ServiceMarketplace : Services de l'écosystème Fare-Calculator (nos services)
+- ContactInfo : Informations de contact (singleton)
 
 Tous les modèles sont enrichis avec des données Mapbox (congestion, sinuosité, classes routes)
 et supportent les fallbacks pour données manquantes (couverture Cameroun incomplète).
@@ -12,6 +17,7 @@ et supportent les fallbacks pour données manquantes (couverture Cameroun incomp
 
 from django.db import models
 from django.core.validators import MinValueValidator, MaxValueValidator
+from django.utils import timezone
 import uuid
 from datetime import datetime
 
@@ -445,11 +451,80 @@ class ApiKey(models.Model):
         self.refresh_from_db()  # Refresh pour obtenir la nouvelle valeur après F()
 
 
+class OffreAbonnement(models.Model):
+    """
+    Modèle pour les offres d'abonnement des partenaires publicitaires.
+    
+    Les partenaires choisissent une offre pour déterminer la durée et le prix
+    de leur publicité sur Fare-Calculator.
+    """
+    nom = models.CharField(max_length=100, verbose_name="Nom de l'offre")
+    duree_mois = models.PositiveIntegerField(
+        verbose_name="Durée (mois)",
+        help_text="Durée de l'abonnement en mois"
+    )
+    prix = models.DecimalField(
+        max_digits=10, 
+        decimal_places=0, 
+        verbose_name="Prix (CFA)",
+        help_text="Prix de l'abonnement en Francs CFA"
+    )
+    description = models.TextField(
+        verbose_name="Description/Avantages",
+        help_text="Description détaillée de l'offre et ses avantages"
+    )
+    ordre_affichage = models.PositiveIntegerField(
+        default=0,
+        verbose_name="Ordre d'affichage",
+        help_text="Ordre d'affichage sur la page pricing (0=premier)"
+    )
+    is_popular = models.BooleanField(
+        default=False,
+        verbose_name="Offre populaire",
+        help_text="Met en valeur cette offre (badge 'Populaire')"
+    )
+    is_active = models.BooleanField(default=True, verbose_name="Active")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Offre d'Abonnement"
+        verbose_name_plural = "Offres d'Abonnement"
+        ordering = ['ordre_affichage', 'prix']
+
+    def __str__(self):
+        return f"{self.nom} - {self.duree_mois} mois - {self.prix} CFA"
+
+
 class Publicite(models.Model):
     """
-    Modèle pour gérer les publicités dynamiques affichées dans l'application.
+    Modèle pour gérer les publicités dynamiques (services partenaires) affichées dans l'application.
+    
+    Les publicités sont liées à un abonnement actif pour être affichées.
     Permet de centraliser les campagnes (Wiki Taxi, Eco Ride, etc.) côté backend.
     """
+    # Constantes pour les statuts
+    STATUT_EN_ATTENTE = 'en_attente'
+    STATUT_APPROUVEE = 'active'
+    STATUT_EXPIREE = 'expiree'
+    STATUT_REJETEE = 'rejetee'
+    
+    STATUT_CHOICES = [
+        (STATUT_EN_ATTENTE, 'En attente de validation'),
+        (STATUT_APPROUVEE, 'Active'),
+        (STATUT_EXPIREE, 'Expirée'),
+        (STATUT_REJETEE, 'Rejetée'),
+    ]
+    
+    # Informations de l'entreprise partenaire
+    nom_entreprise = models.CharField(
+        max_length=255, 
+        verbose_name="Nom de l'entreprise",
+        null=True,
+        blank=True,
+        help_text="Nom de l'entreprise/partenaire"
+    )
+    
     title = models.CharField(max_length=255, verbose_name="Titre")
     title_en = models.CharField(max_length=255, verbose_name="Titre (EN)", null=True, blank=True)
     description = models.TextField(verbose_name="Description")
@@ -458,13 +533,322 @@ class Publicite(models.Model):
     app_link = models.URLField(max_length=500, verbose_name="Lien de l'application", null=True, blank=True)
     category = models.CharField(max_length=100, verbose_name="Catégorie", default="Transport")
     color = models.CharField(max_length=7, verbose_name="Couleur (HEX)", default="#f3cd08")
+    
+    # Nouveau champ statut pour gestion abonnements
+    statut = models.CharField(
+        max_length=20,
+        choices=STATUT_CHOICES,
+        default='en_attente',
+        verbose_name="Statut"
+    )
     is_active = models.BooleanField(default=True, verbose_name="Active")
+    
+    # Informations de contact du gestionnaire
+    contact_email = models.EmailField(
+        verbose_name="Email de contact",
+        null=True,
+        blank=True,
+        help_text="Email du gestionnaire de cette publicité"
+    )
+    contact_telephone = models.CharField(
+        max_length=20,
+        verbose_name="Téléphone de contact",
+        null=True,
+        blank=True,
+        help_text="Numéro WhatsApp/téléphone du gestionnaire"
+    )
+    
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="Date d'ajout")
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        verbose_name = "Publicité"
-        verbose_name_plural = "Publicités"
+        verbose_name = "Publicité (Service Partenaire)"
+        verbose_name_plural = "Publicités (Services Partenaires)"
         ordering = ['-created_at']
 
     def __str__(self):
-        return self.title
+        return f"{self.title} ({self.get_statut_display()})"
+    
+    def est_affichable(self):
+        """
+        Vérifie si la publicité doit être affichée.
+        Elle doit être active ET avoir un abonnement valide.
+        """
+        if not self.is_active or self.statut != 'active':
+            return False
+        
+        # Vérifier si un abonnement actif existe
+        abonnement_actif = self.abonnements.filter(
+            statut='actif',
+            date_fin__gte=timezone.now()
+        ).exists()
+        
+        return abonnement_actif
+
+
+class Abonnement(models.Model):
+    """
+    Modèle pour gérer les abonnements/souscriptions des partenaires.
+    
+    Un abonnement lie une publicité à une offre d'abonnement avec des dates
+    de validité et un statut.
+    """
+    # Constantes pour les statuts
+    STATUT_EN_ATTENTE = 'en_attente'
+    STATUT_ACTIF = 'actif'
+    STATUT_EXPIRE = 'expire'
+    STATUT_ANNULE = 'annule'
+    
+    STATUT_CHOICES = [
+        (STATUT_EN_ATTENTE, 'En attente de paiement'),
+        (STATUT_ACTIF, 'Actif'),
+        (STATUT_EXPIRE, 'Expiré'),
+        (STATUT_ANNULE, 'Annulé'),
+    ]
+    
+    publicite = models.ForeignKey(
+        Publicite,
+        on_delete=models.CASCADE,
+        related_name='abonnements',
+        verbose_name="Publicité"
+    )
+    offre = models.ForeignKey(
+        OffreAbonnement,
+        on_delete=models.PROTECT,
+        related_name='abonnements',
+        verbose_name="Offre choisie"
+    )
+    
+    date_debut = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="Date de début",
+        help_text="Définie par l'admin après confirmation du paiement"
+    )
+    date_fin = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="Date de fin",
+        help_text="Calculée automatiquement à partir de date_debut + durée offre"
+    )
+    
+    statut = models.CharField(
+        max_length=20,
+        choices=STATUT_CHOICES,
+        default='en_attente',
+        verbose_name="Statut"
+    )
+    
+    # Informations de paiement (pour suivi admin)
+    montant_paye = models.DecimalField(
+        max_digits=10,
+        decimal_places=0,
+        null=True,
+        blank=True,
+        verbose_name="Montant payé (CFA)"
+    )
+    reference_paiement = models.CharField(
+        max_length=100,
+        null=True,
+        blank=True,
+        verbose_name="Référence paiement",
+        help_text="Référence ou note sur le paiement"
+    )
+    
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="Date de souscription")
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Abonnement"
+        verbose_name_plural = "Abonnements"
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"Abonnement {self.publicite.title} - {self.offre.nom} ({self.get_statut_display()})"
+    
+    def save(self, *args, **kwargs):
+        """
+        Calcule automatiquement la date de fin lors de l'activation.
+        """
+        from dateutil.relativedelta import relativedelta
+        
+        # Si date_debut définie et date_fin pas encore calculée
+        if self.date_debut and not self.date_fin:
+            self.date_fin = self.date_debut + relativedelta(months=self.offre.duree_mois)
+        
+        # Si on active l'abonnement, activer aussi la publicité
+        if self.statut == 'actif' and self.publicite.statut != 'active':
+            self.publicite.statut = 'active'
+            self.publicite.save(update_fields=['statut'])
+        
+        super().save(*args, **kwargs)
+    
+    def est_expire(self):
+        """Vérifie si l'abonnement est expiré."""
+        if not self.date_fin:
+            return False
+        return timezone.now() > self.date_fin
+    
+    def verifier_et_expirer(self):
+        """
+        Vérifie si l'abonnement est expiré et met à jour le statut si nécessaire.
+        Appelé lors de l'accès à la page Stats.
+        """
+        if self.statut == 'actif' and self.est_expire():
+            self.statut = 'expire'
+            self.save(update_fields=['statut', 'updated_at'])
+            
+            # Désactiver la publicité si plus aucun abonnement actif
+            if not self.publicite.abonnements.filter(statut='actif').exists():
+                self.publicite.statut = 'expiree'
+                self.publicite.save(update_fields=['statut'])
+            
+            return True
+        return False
+    
+    def jours_restants(self):
+        """
+        Calcule le nombre de jours restants avant expiration.
+        Retourne 0 si expiré ou si date_fin non définie.
+        """
+        if not self.date_fin:
+            return 0
+        delta = self.date_fin - timezone.now()
+        return max(0, delta.days)
+
+
+class ServiceMarketplace(models.Model):
+    """
+    Modèle pour les services de la marketplace (services maison).
+    
+    Ce sont les services de l'écosystème Fare-Calculator (Hayden Go, Flip Management, etc.)
+    et NON les services partenaires externes (publicités).
+    """
+    nom = models.CharField(max_length=255, verbose_name="Nom du service")
+    nom_en = models.CharField(max_length=255, verbose_name="Nom (EN)", null=True, blank=True)
+    description = models.TextField(verbose_name="Description")
+    description_en = models.TextField(verbose_name="Description (EN)", null=True, blank=True)
+    image_url = models.URLField(max_length=500, verbose_name="URL de l'image")
+    lien_redirection = models.URLField(
+        max_length=500, 
+        verbose_name="Lien de redirection",
+        help_text="URL vers le service (app store, site web, etc.)"
+    )
+    icone = models.CharField(
+        max_length=50,
+        verbose_name="Icône",
+        default="Zap",
+        help_text="Nom de l'icône Lucide (ex: Zap, Car, MapPin)"
+    )
+    couleur = models.CharField(
+        max_length=7, 
+        verbose_name="Couleur (HEX)", 
+        default="#f3cd08"
+    )
+    ordre_affichage = models.PositiveIntegerField(
+        default=0,
+        verbose_name="Ordre d'affichage"
+    )
+    is_featured = models.BooleanField(
+        default=False,
+        verbose_name="Mis en avant",
+        help_text="Afficher en priorité dans les suggestions"
+    )
+    is_active = models.BooleanField(default=True, verbose_name="Actif")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Service Marketplace"
+        verbose_name_plural = "Services Marketplace"
+        ordering = ['ordre_affichage', '-is_featured', 'nom']
+
+    def __str__(self):
+        return self.nom
+
+
+class ContactInfo(models.Model):
+    """
+    Modèle singleton pour les informations de contact de Fare-Calculator.
+    
+    Affiché dans le footer de l'application. Si aucune info n'est disponible,
+    le footer n'affiche pas la section contact.
+    """
+    email = models.EmailField(
+        verbose_name="Email du service client",
+        null=True,
+        blank=True
+    )
+    whatsapp = models.CharField(
+        max_length=20,
+        verbose_name="Numéro WhatsApp",
+        null=True,
+        blank=True,
+        help_text="Format international (ex: +237XXXXXXXXX)"
+    )
+    telephone = models.CharField(
+        max_length=20,
+        verbose_name="Téléphone",
+        null=True,
+        blank=True
+    )
+    adresse = models.TextField(
+        verbose_name="Adresse physique",
+        null=True,
+        blank=True
+    )
+    facebook_url = models.URLField(
+        verbose_name="Page Facebook",
+        null=True,
+        blank=True
+    )
+    twitter_url = models.URLField(
+        verbose_name="Compte Twitter/X",
+        null=True,
+        blank=True
+    )
+    instagram_url = models.URLField(
+        verbose_name="Compte Instagram",
+        null=True,
+        blank=True
+    )
+    horaires = models.CharField(
+        max_length=100,
+        verbose_name="Horaires de disponibilité",
+        null=True,
+        blank=True,
+        help_text="Ex: Lun-Ven 8h-18h"
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Informations de Contact"
+        verbose_name_plural = "Informations de Contact"
+
+    def __str__(self):
+        return "Informations de Contact Fare-Calculator"
+    
+    def save(self, *args, **kwargs):
+        """
+        Garantit qu'il n'y a qu'une seule instance (singleton).
+        """
+        if not self.pk and ContactInfo.objects.exists():
+            # Si on essaie de créer une nouvelle instance alors qu'une existe
+            existing = ContactInfo.objects.first()
+            self.pk = existing.pk
+        super().save(*args, **kwargs)
+    
+    @classmethod
+    def get_instance(cls):
+        """Récupère l'instance unique ou en crée une vide si elle n'existe pas."""
+        instance = cls.objects.first()
+        if instance is None:
+            instance = cls.objects.create()
+        return instance
+    
+    def has_any_info(self):
+        """Vérifie si au moins une info de contact est disponible."""
+        return any([
+            self.email, self.whatsapp, self.telephone, 
+            self.adresse, self.facebook_url, self.twitter_url, self.instagram_url
+        ])

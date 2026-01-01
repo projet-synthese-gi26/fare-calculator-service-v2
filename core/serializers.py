@@ -23,7 +23,10 @@ from datetime import datetime
 from typing import Dict, Optional
 import logging
 
-from .models import Point, Trajet, ApiKey, Publicite
+from .models import (
+    Point, Trajet, ApiKey, Publicite,
+    OffreAbonnement, Abonnement, ServiceMarketplace, ContactInfo
+)
 from .utils import (
     mapbox_client,
     nominatim_client,
@@ -683,7 +686,131 @@ class PredictionOutputSerializer(serializers.Serializer):
 
 
 class PubliciteSerializer(serializers.ModelSerializer):
-    """Serializer pour le modèle Publicite."""
+    """
+    Serializer pour le modèle Publicite (Services Partenaires).
+    Inclut les informations d'abonnement pour l'affichage.
+    """
+    est_affichable = serializers.SerializerMethodField()
+    
     class Meta:
         model = Publicite
-        fields = '__all__'
+        fields = [
+            'id', 'title', 'title_en', 'description', 'description_en',
+            'image_url', 'app_link', 'category', 'color', 'statut',
+            'is_active', 'contact_email', 'contact_telephone',
+            'est_affichable', 'created_at'
+        ]
+        read_only_fields = ['id', 'created_at', 'est_affichable']
+    
+    def get_est_affichable(self, obj):
+        return obj.est_affichable()
+
+
+class PubliciteCreateSerializer(serializers.ModelSerializer):
+    """
+    Serializer pour créer une nouvelle publicité (souscription partenaire).
+    Utilisé par le formulaire de souscription frontend.
+    """
+    offre_id = serializers.IntegerField(write_only=True, help_text="ID de l'offre d'abonnement choisie")
+    
+    class Meta:
+        model = Publicite
+        fields = [
+            'title', 'title_en', 'description', 'description_en',
+            'image_url', 'app_link', 'category', 'color',
+            'contact_email', 'contact_telephone', 'offre_id'
+        ]
+    
+    def create(self, validated_data):
+        from .models import Abonnement, OffreAbonnement
+        
+        offre_id = validated_data.pop('offre_id')
+        
+        # Créer la publicité en statut "en_attente"
+        validated_data['statut'] = 'en_attente'
+        validated_data['is_active'] = False
+        publicite = Publicite.objects.create(**validated_data)
+        
+        # Créer l'abonnement associé
+        try:
+            offre = OffreAbonnement.objects.get(pk=offre_id, is_active=True)
+            Abonnement.objects.create(
+                publicite=publicite,
+                offre=offre,
+                statut='en_attente'
+            )
+        except OffreAbonnement.DoesNotExist:
+            pass  # L'offre n'existe pas, mais la pub est créée quand même
+        
+        return publicite
+
+
+class OffreAbonnementSerializer(serializers.ModelSerializer):
+    """Serializer pour les offres d'abonnement."""
+    class Meta:
+        model = OffreAbonnement
+        fields = [
+            'id', 'nom', 'duree_mois', 'prix', 'description',
+            'ordre_affichage', 'is_popular', 'is_active', 'created_at'
+        ]
+        read_only_fields = ['id', 'created_at']
+
+
+class AbonnementSerializer(serializers.ModelSerializer):
+    """Serializer pour les abonnements."""
+    publicite = PubliciteSerializer(read_only=True)
+    offre = OffreAbonnementSerializer(read_only=True)
+    est_expire = serializers.SerializerMethodField()
+    jours_restants = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = Abonnement
+        fields = [
+            'id', 'publicite', 'offre', 'date_debut', 'date_fin',
+            'statut', 'montant_paye', 'reference_paiement',
+            'est_expire', 'jours_restants', 'created_at'
+        ]
+        read_only_fields = ['id', 'created_at', 'est_expire', 'jours_restants']
+    
+    def get_est_expire(self, obj):
+        return obj.est_expire()
+    
+    def get_jours_restants(self, obj):
+        if obj.date_fin and obj.statut == 'actif':
+            from django.utils import timezone
+            delta = obj.date_fin - timezone.now()
+            return max(0, delta.days)
+        return None
+
+
+class ServiceMarketplaceSerializer(serializers.ModelSerializer):
+    """Serializer pour les services de la marketplace (nos services)."""
+    class Meta:
+        model = ServiceMarketplace
+        fields = [
+            'id', 'nom', 'nom_en', 'description', 'description_en',
+            'image_url', 'lien_redirection', 'icone', 'couleur',
+            'ordre_affichage', 'is_featured', 'is_active', 'created_at'
+        ]
+        read_only_fields = ['id', 'created_at']
+
+
+class ContactInfoSerializer(serializers.ModelSerializer):
+    """Serializer pour les informations de contact."""
+    has_any_info = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = ContactInfo
+        fields = [
+            'email', 'whatsapp', 'telephone', 'adresse',
+            'facebook_url', 'twitter_url', 'instagram_url',
+            'horaires', 'has_any_info', 'updated_at'
+        ]
+        read_only_fields = ['updated_at', 'has_any_info']
+    
+    def get_has_any_info(self, obj):
+        return obj.has_any_info()
+
+
+# Import des nouveaux modèles pour les serializers
+from .models import OffreAbonnement, Abonnement, ServiceMarketplace, ContactInfo

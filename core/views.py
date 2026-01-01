@@ -36,14 +36,22 @@ from datetime import datetime
 import logging
 from typing import Dict, List, Optional, Tuple
 
-from .models import Point, Trajet, ApiKey, Publicite
+from .models import (
+    Point, Trajet, ApiKey, Publicite,
+    OffreAbonnement, Abonnement, ServiceMarketplace, ContactInfo
+)
 from .serializers import (
     PointSerializer,
     TrajetSerializer,
     EstimateInputSerializer,
     PredictionOutputSerializer,
     HealthCheckSerializer,
-    PubliciteSerializer
+    PubliciteSerializer,
+    PubliciteCreateSerializer,
+    OffreAbonnementSerializer,
+    AbonnementSerializer,
+    ServiceMarketplaceSerializer,
+    ContactInfoSerializer
 )
 from .utils import (
     mapbox_client,
@@ -139,17 +147,156 @@ class TrajetViewSet(viewsets.ModelViewSet):
         })
 
 
-class PubliciteViewSet(viewsets.ReadOnlyModelViewSet):
+class PubliciteViewSet(viewsets.ModelViewSet):
     """
-    ViewSet lecture seule pour les publicités actives.
+    ViewSet pour les publicités (partenaires).
     
     Endpoints :
-        GET /api/publicites/ : Liste toutes les pubs actives
+        GET /api/publicites/ : Liste toutes les pubs affichables (actives + abonnement valide)
         GET /api/publicites/{id}/ : Détail d'une pub
+        POST /api/publicites/ : Soumettre une demande de publicité (avec choix d'offre)
+        GET /api/publicites/{id}/stats/ : Stats de la pub (pour le partenaire)
     """
-    queryset = Publicite.objects.filter(is_active=True)
-    serializer_class = PubliciteSerializer
     pagination_class = None  # Pas de pagination pour les pubs
+    
+    def get_queryset(self):
+        """
+        Pour GET list: retourne uniquement les publicités affichables.
+        Pour autres actions: toutes les publicités.
+        """
+        if self.action == 'list':
+            # Mettre à jour les abonnements expirés avant de filtrer
+            Abonnement.objects.mettre_a_jour_expirations()
+            # Ne retourner que les pubs affichables (méthode du modèle)
+            return Publicite.objects.filter(
+                is_active=True,
+                statut=Publicite.STATUT_APPROUVEE
+            )
+        return Publicite.objects.all()
+    
+    def get_serializer_class(self):
+        """Serializer différent pour création vs lecture."""
+        if self.action == 'create':
+            return PubliciteCreateSerializer
+        return PubliciteSerializer
+    
+    @action(detail=True, methods=['get'])
+    def stats(self, request, pk=None):
+        """
+        Statistiques d'une publicité pour le partenaire.
+        Vérifie que l'abonnement est valide avant de donner accès.
+        """
+        publicite = self.get_object()
+        
+        # Vérifier l'abonnement
+        try:
+            abonnement = publicite.abonnements.latest('date_debut')
+            if abonnement.est_expire():
+                return Response({
+                    "error": "Abonnement expiré",
+                    "message": "Votre abonnement a expiré. Veuillez le renouveler pour accéder aux statistiques.",
+                    "date_expiration": abonnement.date_fin
+                }, status=status.HTTP_403_FORBIDDEN)
+        except Abonnement.DoesNotExist:
+            return Response({
+                "error": "Pas d'abonnement",
+                "message": "Aucun abonnement trouvé pour cette publicité."
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        # Retourner les stats (à enrichir plus tard)
+        return Response({
+            "publicite_id": publicite.id,
+            "nom_entreprise": publicite.nom_entreprise,
+            "date_creation": publicite.date_creation,
+            "abonnement": AbonnementSerializer(abonnement).data,
+            "stats": {
+                "vues": 0,  # TODO: Implémenter tracking
+                "clics": 0,
+                "taux_clic": 0
+            }
+        })
+
+
+class OffreAbonnementViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    ViewSet lecture seule pour les offres d'abonnement.
+    Utilisé pour la page Pricing.
+    
+    Endpoints :
+        GET /api/offres-abonnement/ : Liste toutes les offres actives
+        GET /api/offres-abonnement/{id}/ : Détail d'une offre
+    """
+    queryset = OffreAbonnement.objects.filter(is_active=True).order_by('ordre_affichage', 'prix')
+    serializer_class = OffreAbonnementSerializer
+    pagination_class = None
+
+
+class AbonnementViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    ViewSet pour consulter les abonnements.
+    
+    Endpoints :
+        GET /api/abonnements/ : Liste tous les abonnements
+        GET /api/abonnements/{id}/ : Détail d'un abonnement
+        GET /api/abonnements/verifier/{publicite_id}/ : Vérifier l'abonnement d'une pub
+    """
+    queryset = Abonnement.objects.all()
+    serializer_class = AbonnementSerializer
+    pagination_class = None
+    
+    @action(detail=False, methods=['get'], url_path='verifier/(?P<publicite_id>[^/.]+)')
+    def verifier(self, request, publicite_id=None):
+        """
+        Vérifie si une publicité a un abonnement actif.
+        Utilisé pour contrôler l'accès à la page Stats.
+        """
+        # D'abord, mettre à jour les expirations
+        Abonnement.objects.mettre_a_jour_expirations()
+        
+        try:
+            abonnement = Abonnement.objects.filter(
+                publicite_id=publicite_id,
+                statut=Abonnement.STATUT_ACTIF
+            ).latest('date_debut')
+            
+            return Response({
+                "is_valid": True,
+                "abonnement": AbonnementSerializer(abonnement).data
+            })
+        except Abonnement.DoesNotExist:
+            return Response({
+                "is_valid": False,
+                "message": "Aucun abonnement actif trouvé"
+            })
+
+
+class ServiceMarketplaceViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    ViewSet lecture seule pour les services du marketplace.
+    Ces services sont différents des publicités partenaires.
+    
+    Endpoints :
+        GET /api/services-marketplace/ : Liste tous les services actifs
+        GET /api/services-marketplace/{id}/ : Détail d'un service
+    """
+    queryset = ServiceMarketplace.objects.filter(is_active=True).order_by('ordre_affichage', 'nom')
+    serializer_class = ServiceMarketplaceSerializer
+    pagination_class = None
+
+
+class ContactInfoViewSet(viewsets.ViewSet):
+    """
+    ViewSet pour les informations de contact (singleton).
+    
+    Endpoints :
+        GET /api/contact-info/ : Retourne les infos de contact
+    """
+    
+    def list(self, request):
+        """Retourne les informations de contact."""
+        contact = ContactInfo.get_instance()
+        serializer = ContactInfoSerializer(contact)
+        return Response(serializer.data)
 
 
 class EstimateView(APIView):
