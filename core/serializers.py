@@ -695,7 +695,7 @@ class PubliciteSerializer(serializers.ModelSerializer):
     class Meta:
         model = Publicite
         fields = [
-            'id', 'title', 'title_en', 'description', 'description_en',
+            'id', 'nom_entreprise', 'title', 'title_en', 'description', 'description_en',
             'image_url', 'app_link', 'category', 'color', 'statut',
             'is_active', 'contact_email', 'contact_telephone',
             'est_affichable', 'created_at'
@@ -716,7 +716,7 @@ class PubliciteCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Publicite
         fields = [
-            'title', 'title_en', 'description', 'description_en',
+            'nom_entreprise', 'title', 'title_en', 'description', 'description_en',
             'image_url', 'app_link', 'category', 'color',
             'contact_email', 'contact_telephone', 'offre_id'
         ]

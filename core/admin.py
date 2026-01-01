@@ -275,10 +275,30 @@ class PubliciteAdmin(admin.ModelAdmin):
     
     actions = ['approuver_publicites', 'rejeter_publicites']
     
-    @admin.action(description="✅ Approuver les publicités sélectionnées")
+    @admin.action(description="✅ Approuver les publicités sélectionnées (+ activer abonnement)")
     def approuver_publicites(self, request, queryset):
-        count = queryset.update(statut=Publicite.STATUT_APPROUVEE, is_active=True)
-        self.message_user(request, f"{count} publicité(s) approuvée(s).")
+        from django.utils import timezone
+        from dateutil.relativedelta import relativedelta
+        
+        count = 0
+        for pub in queryset:
+            # Mettre à jour la publicité
+            pub.statut = Publicite.STATUT_APPROUVEE
+            pub.is_active = True
+            pub.save()
+            
+            # Activer l'abonnement associé
+            abo = pub.abonnements.filter(statut='en_attente').first()
+            if abo:
+                abo.statut = 'actif'
+                abo.date_debut = timezone.now()
+                if abo.offre and abo.offre.duree_mois:
+                    abo.date_fin = timezone.now() + relativedelta(months=abo.offre.duree_mois)
+                abo.save()
+            
+            count += 1
+        
+        self.message_user(request, f"{count} publicité(s) approuvée(s) et abonnement(s) activé(s).")
     
     @admin.action(description="❌ Rejeter les publicités sélectionnées")
     def rejeter_publicites(self, request, queryset):
@@ -393,12 +413,54 @@ class AbonnementAdmin(admin.ModelAdmin):
             return "-"
     est_expire_display.short_description = "Statut réel"
     
-    actions = ['mettre_a_jour_expirations']
+    actions = ['mettre_a_jour_expirations', 'activer_abonnements', 'prolonger_1_mois']
     
     @admin.action(description="🔄 Mettre à jour les expirations")
     def mettre_a_jour_expirations(self, request, queryset):
         Abonnement.objects.mettre_a_jour_expirations()
         self.message_user(request, "Expirations mises à jour.")
+    
+    @admin.action(description="✅ Activer les abonnements sélectionnés")
+    def activer_abonnements(self, request, queryset):
+        from django.utils import timezone
+        from dateutil.relativedelta import relativedelta
+        
+        count = 0
+        for abo in queryset:
+            abo.statut = 'actif'
+            abo.date_debut = timezone.now()
+            if abo.offre and abo.offre.duree_mois:
+                abo.date_fin = timezone.now() + relativedelta(months=abo.offre.duree_mois)
+            abo.save()
+            
+            # Activer aussi la publicité associée
+            if abo.publicite:
+                abo.publicite.statut = 'active'
+                abo.publicite.is_active = True
+                abo.publicite.save()
+            
+            count += 1
+        
+        self.message_user(request, f"{count} abonnement(s) activé(s).")
+    
+    @admin.action(description="➕ Prolonger d'un mois")
+    def prolonger_1_mois(self, request, queryset):
+        from django.utils import timezone
+        from dateutil.relativedelta import relativedelta
+        
+        count = 0
+        for abo in queryset:
+            if abo.date_fin:
+                # Prolonger depuis la date de fin actuelle
+                abo.date_fin = abo.date_fin + relativedelta(months=1)
+            else:
+                # Si pas de date de fin, commencer maintenant
+                abo.date_fin = timezone.now() + relativedelta(months=1)
+            abo.statut = 'actif'
+            abo.save()
+            count += 1
+        
+        self.message_user(request, f"{count} abonnement(s) prolongé(s) d'un mois.")
 
 
 @admin.register(ServiceMarketplace)
