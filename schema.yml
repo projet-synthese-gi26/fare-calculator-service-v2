@@ -6,6 +6,87 @@ info:
   contact:
     email: donfackarthur750@gmail.com
 paths:
+  /api/abonnements/:
+    get:
+      operationId: abonnements_list
+      description: |-
+        ViewSet pour consulter les abonnements.
+
+        Endpoints :
+            GET /api/abonnements/ : Liste tous les abonnements
+            GET /api/abonnements/{id}/ : Détail d'un abonnement
+            GET /api/abonnements/verifier/{publicite_id}/ : Vérifier l'abonnement d'une pub
+      tags:
+      - abonnements
+      security:
+      - tokenAuth: []
+      - ApiKeyAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Abonnement'
+          description: ''
+  /api/abonnements/{id}/:
+    get:
+      operationId: abonnements_retrieve
+      description: |-
+        ViewSet pour consulter les abonnements.
+
+        Endpoints :
+            GET /api/abonnements/ : Liste tous les abonnements
+            GET /api/abonnements/{id}/ : Détail d'un abonnement
+            GET /api/abonnements/verifier/{publicite_id}/ : Vérifier l'abonnement d'une pub
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this Abonnement.
+        required: true
+      tags:
+      - abonnements
+      security:
+      - tokenAuth: []
+      - ApiKeyAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Abonnement'
+          description: ''
+  /api/abonnements/verifier/{publicite_id}/:
+    get:
+      operationId: abonnements_verifier_retrieve
+      description: |-
+        Vérifie si une publicité a un abonnement actif.
+        Utilisé pour contrôler l'accès à la page Stats.
+      parameters:
+      - in: path
+        name: publicite_id
+        schema:
+          type: integer
+          title: Publicité
+        required: true
+      tags:
+      - abonnements
+      security:
+      - tokenAuth: []
+      - ApiKeyAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Abonnement'
+          description: ''
   /api/add-trajet/:
     post:
       operationId: add_trajet_create
@@ -19,8 +100,8 @@ paths:
               $ref: '#/components/schemas/Trajet'
         required: true
       security:
-      - cookieAuth: []
-      - basicAuth: []
+      - tokenAuth: []
+      - ApiKeyAuth: []
       - {}
       responses:
         '200':
@@ -29,35 +110,100 @@ paths:
               schema:
                 $ref: '#/components/schemas/Trajet'
           description: ''
+  /api/contact-info/:
+    get:
+      operationId: contact_info_retrieve
+      description: Retourne les informations de contact.
+      tags:
+      - contact-info
+      security:
+      - tokenAuth: []
+      - ApiKeyAuth: []
+      - {}
+      responses:
+        '200':
+          description: No response body
   /api/estimate/:
     get:
       operationId: estimate_retrieve
-      description: Endpoint GET /api/estimate/ avec query params (conversion vers
-        format POST).
+      description: "\n        Endpoint GET /api/estimate/ avec paramètres URL (alternative
+        au POST).\n        \n        **Flexibilité des paramètres :**\n        - Les
+        coordonnées (lat/lon) sont **requises** en GET.\n        - Les paramètres
+        `heure`, `meteo`, `type_zone`, `congestion_user` sont **optionnels** (détectés/déduits
+        automatiquement).\n        - Format identique au POST en termes de logique
+        estimation.\n        \n        **Exemple URL :**\n        ```\n        GET
+        /api/estimate/?depart_lat=3.8547&depart_lon=11.5021&arrivee_lat=3.8667&arrivee_lon=11.5174&heure=matin&meteo=0\n
+        \       ```\n        "
+      parameters:
+      - in: query
+        name: arrivee_lat
+        schema:
+          type: number
+          format: double
+        description: Latitude du point d'arrivée (coordonnées)
+        required: true
+      - in: query
+        name: arrivee_lon
+        schema:
+          type: number
+          format: double
+        description: Longitude du point d'arrivée (coordonnées)
+        required: true
+      - in: query
+        name: congestion_user
+        schema:
+          type: integer
+        description: 'Niveau de congestion perçu (optionnel: 0-10). Défaut=5 (neutre)
+          si omis.'
+      - in: query
+        name: depart_lat
+        schema:
+          type: number
+          format: double
+        description: Latitude du point de départ (coordonnées)
+        required: true
+      - in: query
+        name: depart_lon
+        schema:
+          type: number
+          format: double
+        description: Longitude du point de départ (coordonnées)
+        required: true
+      - in: query
+        name: heure
+        schema:
+          type: string
+        description: 'Heure du trajet (optionnel: matin|apres-midi|soir|nuit). Détectée
+          automatiquement si omise.'
+      - in: query
+        name: meteo
+        schema:
+          type: integer
+        description: 'Condition météo (optionnel: 0=soleil|1=pluie-legere|2=pluie-forte|3=orage).
+          Détectée automatiquement via API si omise.'
+      - in: query
+        name: type_zone
+        schema:
+          type: integer
+        description: 'Type de zone (optionnel: 0=urbain|1=periurbain|2=rural). Déduit
+          automatiquement si omis.'
       tags:
       - estimate
       security:
-      - cookieAuth: []
-      - basicAuth: []
+      - tokenAuth: []
+      - ApiKeyAuth: []
       - {}
       responses:
         '200':
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/EstimateInput'
+                $ref: '#/components/schemas/PredictionOutput'
           description: ''
     post:
       operationId: estimate_create
-      description: "\n        Endpoint principal d'estimation de prix.\n        \n
-        \       **Flexibilité des paramètres :**\n        - Les coordonnées (`lat`/`lon`)
-        sont **optionnelles** si un nom de lieu (`label`) est fourni.\n        - L'API
-        effectuera un géocodage automatique si nécessaire.\n        - Les paramètres
-        `heure`, `meteo`, `type_zone` sont **optionnels** (détectés automatiquement
-        si omis).\n        \n        **Exemple minimaliste (Noms de lieux uniquement)
-        :**\n        ```json\n        {\n            \"depart\": {\"label\": \"Poste
-        Centrale\"},\n            \"arrivee\": {\"label\": \"Mvan\"}\n        }\n
-        \       ```\n        "
+      description: Estimer le prix d'un trajet taxi. Accepte coordonnées OU noms de
+        lieux. Variables (heure, météo, zone) détectées automatiquement si manquantes.
       tags:
       - estimate
       requestBody:
@@ -67,8 +213,8 @@ paths:
               $ref: '#/components/schemas/EstimateInput'
         required: true
       security:
-      - cookieAuth: []
-      - basicAuth: []
+      - tokenAuth: []
+      - ApiKeyAuth: []
       - {}
       responses:
         '200':
@@ -104,8 +250,8 @@ paths:
       tags:
       - health
       security:
-      - cookieAuth: []
-      - basicAuth: []
+      - tokenAuth: []
+      - ApiKeyAuth: []
       - {}
       responses:
         '200':
@@ -113,6 +259,61 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HealthCheck'
+          description: ''
+  /api/offres-abonnement/:
+    get:
+      operationId: offres_abonnement_list
+      description: |-
+        ViewSet lecture seule pour les offres d'abonnement.
+        Utilisé pour la page Pricing.
+
+        Endpoints :
+            GET /api/offres-abonnement/ : Liste toutes les offres actives
+            GET /api/offres-abonnement/{id}/ : Détail d'une offre
+      tags:
+      - offres-abonnement
+      security:
+      - tokenAuth: []
+      - ApiKeyAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/OffreAbonnement'
+          description: ''
+  /api/offres-abonnement/{id}/:
+    get:
+      operationId: offres_abonnement_retrieve
+      description: |-
+        ViewSet lecture seule pour les offres d'abonnement.
+        Utilisé pour la page Pricing.
+
+        Endpoints :
+            GET /api/offres-abonnement/ : Liste toutes les offres actives
+            GET /api/offres-abonnement/{id}/ : Détail d'une offre
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this Offre d'Abonnement.
+        required: true
+      tags:
+      - offres-abonnement
+      security:
+      - tokenAuth: []
+      - ApiKeyAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OffreAbonnement'
           description: ''
   /api/points/:
     get:
@@ -143,8 +344,8 @@ paths:
       tags:
       - points
       security:
-      - cookieAuth: []
-      - basicAuth: []
+      - tokenAuth: []
+      - ApiKeyAuth: []
       - {}
       responses:
         '200':
@@ -178,8 +379,8 @@ paths:
       tags:
       - points
       security:
-      - cookieAuth: []
-      - basicAuth: []
+      - tokenAuth: []
+      - ApiKeyAuth: []
       - {}
       responses:
         '200':
@@ -192,16 +393,18 @@ paths:
     get:
       operationId: publicites_list
       description: |-
-        ViewSet lecture seule pour les publicités actives.
+        ViewSet pour les publicités (partenaires).
 
         Endpoints :
-            GET /api/publicites/ : Liste toutes les pubs actives
+            GET /api/publicites/ : Liste toutes les pubs affichables (actives + abonnement valide)
             GET /api/publicites/{id}/ : Détail d'une pub
+            POST /api/publicites/ : Soumettre une demande de publicité (avec choix d'offre)
+            GET /api/publicites/{id}/stats/ : Stats de la pub (pour le partenaire)
       tags:
       - publicites
       security:
-      - cookieAuth: []
-      - basicAuth: []
+      - tokenAuth: []
+      - ApiKeyAuth: []
       - {}
       responses:
         '200':
@@ -212,27 +415,181 @@ paths:
                 items:
                   $ref: '#/components/schemas/Publicite'
           description: ''
+    post:
+      operationId: publicites_create
+      description: |-
+        ViewSet pour les publicités (partenaires).
+
+        Endpoints :
+            GET /api/publicites/ : Liste toutes les pubs affichables (actives + abonnement valide)
+            GET /api/publicites/{id}/ : Détail d'une pub
+            POST /api/publicites/ : Soumettre une demande de publicité (avec choix d'offre)
+            GET /api/publicites/{id}/stats/ : Stats de la pub (pour le partenaire)
+      tags:
+      - publicites
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PubliciteCreate'
+        required: true
+      security:
+      - tokenAuth: []
+      - ApiKeyAuth: []
+      - {}
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PubliciteCreate'
+          description: ''
   /api/publicites/{id}/:
     get:
       operationId: publicites_retrieve
       description: |-
-        ViewSet lecture seule pour les publicités actives.
+        ViewSet pour les publicités (partenaires).
 
         Endpoints :
-            GET /api/publicites/ : Liste toutes les pubs actives
+            GET /api/publicites/ : Liste toutes les pubs affichables (actives + abonnement valide)
             GET /api/publicites/{id}/ : Détail d'une pub
+            POST /api/publicites/ : Soumettre une demande de publicité (avec choix d'offre)
+            GET /api/publicites/{id}/stats/ : Stats de la pub (pour le partenaire)
       parameters:
       - in: path
         name: id
         schema:
           type: integer
-        description: A unique integer value identifying this Publicité.
+        description: A unique integer value identifying this Publicité (Service Partenaire).
         required: true
       tags:
       - publicites
       security:
-      - cookieAuth: []
-      - basicAuth: []
+      - tokenAuth: []
+      - ApiKeyAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Publicite'
+          description: ''
+    put:
+      operationId: publicites_update
+      description: |-
+        ViewSet pour les publicités (partenaires).
+
+        Endpoints :
+            GET /api/publicites/ : Liste toutes les pubs affichables (actives + abonnement valide)
+            GET /api/publicites/{id}/ : Détail d'une pub
+            POST /api/publicites/ : Soumettre une demande de publicité (avec choix d'offre)
+            GET /api/publicites/{id}/stats/ : Stats de la pub (pour le partenaire)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this Publicité (Service Partenaire).
+        required: true
+      tags:
+      - publicites
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Publicite'
+        required: true
+      security:
+      - tokenAuth: []
+      - ApiKeyAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Publicite'
+          description: ''
+    patch:
+      operationId: publicites_partial_update
+      description: |-
+        ViewSet pour les publicités (partenaires).
+
+        Endpoints :
+            GET /api/publicites/ : Liste toutes les pubs affichables (actives + abonnement valide)
+            GET /api/publicites/{id}/ : Détail d'une pub
+            POST /api/publicites/ : Soumettre une demande de publicité (avec choix d'offre)
+            GET /api/publicites/{id}/stats/ : Stats de la pub (pour le partenaire)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this Publicité (Service Partenaire).
+        required: true
+      tags:
+      - publicites
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedPublicite'
+      security:
+      - tokenAuth: []
+      - ApiKeyAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Publicite'
+          description: ''
+    delete:
+      operationId: publicites_destroy
+      description: |-
+        ViewSet pour les publicités (partenaires).
+
+        Endpoints :
+            GET /api/publicites/ : Liste toutes les pubs affichables (actives + abonnement valide)
+            GET /api/publicites/{id}/ : Détail d'une pub
+            POST /api/publicites/ : Soumettre une demande de publicité (avec choix d'offre)
+            GET /api/publicites/{id}/stats/ : Stats de la pub (pour le partenaire)
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this Publicité (Service Partenaire).
+        required: true
+      tags:
+      - publicites
+      security:
+      - tokenAuth: []
+      - ApiKeyAuth: []
+      - {}
+      responses:
+        '204':
+          description: No response body
+  /api/publicites/{id}/stats/:
+    get:
+      operationId: publicites_stats_retrieve
+      description: |-
+        Statistiques d'une publicité pour le partenaire.
+        Vérifie que l'abonnement est valide avant de donner accès.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this Publicité (Service Partenaire).
+        required: true
+      tags:
+      - publicites
+      security:
+      - tokenAuth: []
+      - ApiKeyAuth: []
       - {}
       responses:
         '200':
@@ -364,8 +721,8 @@ paths:
       tags:
       - schema
       security:
-      - cookieAuth: []
-      - basicAuth: []
+      - tokenAuth: []
+      - ApiKeyAuth: []
       - {}
       responses:
         '200':
@@ -387,6 +744,61 @@ paths:
                 type: object
                 additionalProperties: {}
           description: ''
+  /api/services-marketplace/:
+    get:
+      operationId: services_marketplace_list
+      description: |-
+        ViewSet lecture seule pour les services du marketplace.
+        Ces services sont différents des publicités partenaires.
+
+        Endpoints :
+            GET /api/services-marketplace/ : Liste tous les services actifs
+            GET /api/services-marketplace/{id}/ : Détail d'un service
+      tags:
+      - services-marketplace
+      security:
+      - tokenAuth: []
+      - ApiKeyAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ServiceMarketplace'
+          description: ''
+  /api/services-marketplace/{id}/:
+    get:
+      operationId: services_marketplace_retrieve
+      description: |-
+        ViewSet lecture seule pour les services du marketplace.
+        Ces services sont différents des publicités partenaires.
+
+        Endpoints :
+            GET /api/services-marketplace/ : Liste tous les services actifs
+            GET /api/services-marketplace/{id}/ : Détail d'un service
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this Service Marketplace.
+        required: true
+      tags:
+      - services-marketplace
+      security:
+      - tokenAuth: []
+      - ApiKeyAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceMarketplace'
+          description: ''
   /api/stats/:
     get:
       operationId: stats_retrieve
@@ -396,8 +808,8 @@ paths:
       tags:
       - stats
       security:
-      - cookieAuth: []
-      - basicAuth: []
+      - tokenAuth: []
+      - ApiKeyAuth: []
       - {}
       responses:
         '200':
@@ -457,8 +869,8 @@ paths:
       tags:
       - trajets
       security:
-      - cookieAuth: []
-      - basicAuth: []
+      - tokenAuth: []
+      - ApiKeyAuth: []
       - {}
       responses:
         '200':
@@ -493,8 +905,8 @@ paths:
               $ref: '#/components/schemas/Trajet'
         required: true
       security:
-      - cookieAuth: []
-      - basicAuth: []
+      - tokenAuth: []
+      - ApiKeyAuth: []
       - {}
       responses:
         '201':
@@ -529,8 +941,8 @@ paths:
       tags:
       - trajets
       security:
-      - cookieAuth: []
-      - basicAuth: []
+      - tokenAuth: []
+      - ApiKeyAuth: []
       - {}
       responses:
         '200':
@@ -563,8 +975,8 @@ paths:
       tags:
       - trajets
       security:
-      - cookieAuth: []
-      - basicAuth: []
+      - tokenAuth: []
+      - ApiKeyAuth: []
       - {}
       responses:
         '200':
@@ -575,6 +987,77 @@ paths:
           description: ''
 components:
   schemas:
+    Abonnement:
+      type: object
+      description: Serializer pour les abonnements.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        publicite:
+          allOf:
+          - $ref: '#/components/schemas/Publicite'
+          readOnly: true
+        offre:
+          allOf:
+          - $ref: '#/components/schemas/OffreAbonnement'
+          readOnly: true
+        date_debut:
+          type: string
+          format: date-time
+          nullable: true
+          title: Date de début
+          description: Définie par l'admin après confirmation du paiement
+        date_fin:
+          type: string
+          format: date-time
+          nullable: true
+          title: Date de fin
+          description: Calculée automatiquement à partir de date_debut + durée offre
+        statut:
+          $ref: '#/components/schemas/AbonnementStatutEnum'
+        montant_paye:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,0})?$
+          nullable: true
+          title: Montant payé (CFA)
+        reference_paiement:
+          type: string
+          nullable: true
+          title: Référence paiement
+          description: Référence ou note sur le paiement
+          maxLength: 100
+        est_expire:
+          type: string
+          readOnly: true
+        jours_restants:
+          type: string
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+          title: Date de souscription
+      required:
+      - created_at
+      - est_expire
+      - id
+      - jours_restants
+      - offre
+      - publicite
+    AbonnementStatutEnum:
+      enum:
+      - en_attente
+      - actif
+      - expire
+      - annule
+      type: string
+      description: |-
+        * `en_attente` - En attente de paiement
+        * `actif` - Actif
+        * `expire` - Expiré
+        * `annule` - Annulé
     BlankEnum:
       enum:
       - ''
@@ -738,6 +1221,126 @@ components:
     NullEnum:
       enum:
       - null
+    OffreAbonnement:
+      type: object
+      description: Serializer pour les offres d'abonnement.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        nom:
+          type: string
+          title: Nom de l'offre
+          maxLength: 100
+        duree_mois:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+          title: Durée (mois)
+          description: Durée de l'abonnement en mois
+        prix:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,10}(?:\.\d{0,0})?$
+          title: Prix (CFA)
+          description: Prix de l'abonnement en Francs CFA
+        description:
+          type: string
+          title: Description/Avantages
+          description: Description détaillée de l'offre et ses avantages
+        ordre_affichage:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+          title: Ordre d'affichage
+          description: Ordre d'affichage sur la page pricing (0=premier)
+        is_popular:
+          type: boolean
+          title: Offre populaire
+          description: Met en valeur cette offre (badge 'Populaire')
+        is_active:
+          type: boolean
+          title: Active
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - description
+      - duree_mois
+      - id
+      - nom
+      - prix
+    PatchedPublicite:
+      type: object
+      description: |-
+        Serializer pour le modèle Publicite (Services Partenaires).
+        Inclut les informations d'abonnement pour l'affichage.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        title:
+          type: string
+          title: Titre
+          maxLength: 255
+        title_en:
+          type: string
+          nullable: true
+          title: Titre (EN)
+          maxLength: 255
+        description:
+          type: string
+        description_en:
+          type: string
+          nullable: true
+          title: Description (EN)
+        image_url:
+          type: string
+          format: uri
+          title: URL de l'image
+          maxLength: 500
+        app_link:
+          type: string
+          format: uri
+          nullable: true
+          title: Lien de l'application
+          maxLength: 500
+        category:
+          type: string
+          title: Catégorie
+          maxLength: 100
+        color:
+          type: string
+          title: Couleur (HEX)
+          maxLength: 7
+        statut:
+          $ref: '#/components/schemas/PubliciteStatutEnum'
+        is_active:
+          type: boolean
+          title: Active
+        contact_email:
+          type: string
+          format: email
+          nullable: true
+          title: Email de contact
+          description: Email du gestionnaire de cette publicité
+          maxLength: 254
+        contact_telephone:
+          type: string
+          nullable: true
+          title: Téléphone de contact
+          description: Numéro WhatsApp/téléphone du gestionnaire
+          maxLength: 20
+        est_affichable:
+          type: string
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+          title: Date d'ajout
     Point:
       type: object
       description: |-
@@ -849,7 +1452,7 @@ components:
       properties:
         statut:
           allOf:
-          - $ref: '#/components/schemas/StatutEnum'
+          - $ref: '#/components/schemas/PredictionOutputStatutEnum'
           description: |-
             Statut estimation : exact (match BD), similaire (ajusté), inconnu (fallbacks).
 
@@ -918,9 +1521,21 @@ components:
       - prix_min
       - prix_moyen
       - statut
+    PredictionOutputStatutEnum:
+      enum:
+      - exact
+      - similaire
+      - inconnu
+      type: string
+      description: |-
+        * `exact` - exact
+        * `similaire` - similaire
+        * `inconnu` - inconnu
     Publicite:
       type: object
-      description: Serializer pour le modèle Publicite.
+      description: |-
+        Serializer pour le modèle Publicite (Services Partenaires).
+        Inclut les informations d'abonnement pour l'affichage.
       properties:
         id:
           type: integer
@@ -929,8 +1544,17 @@ components:
           type: string
           title: Titre
           maxLength: 255
+        title_en:
+          type: string
+          nullable: true
+          title: Titre (EN)
+          maxLength: 255
         description:
           type: string
+        description_en:
+          type: string
+          nullable: true
+          title: Description (EN)
         image_url:
           type: string
           format: uri
@@ -950,9 +1574,27 @@ components:
           type: string
           title: Couleur (HEX)
           maxLength: 7
+        statut:
+          $ref: '#/components/schemas/PubliciteStatutEnum'
         is_active:
           type: boolean
           title: Active
+        contact_email:
+          type: string
+          format: email
+          nullable: true
+          title: Email de contact
+          description: Email du gestionnaire de cette publicité
+          maxLength: 254
+        contact_telephone:
+          type: string
+          nullable: true
+          title: Téléphone de contact
+          description: Numéro WhatsApp/téléphone du gestionnaire
+          maxLength: 20
+        est_affichable:
+          type: string
+          readOnly: true
         created_at:
           type: string
           format: date-time
@@ -961,19 +1603,149 @@ components:
       required:
       - created_at
       - description
+      - est_affichable
       - id
       - image_url
       - title
-    StatutEnum:
+    PubliciteCreate:
+      type: object
+      description: |-
+        Serializer pour créer une nouvelle publicité (souscription partenaire).
+        Utilisé par le formulaire de souscription frontend.
+      properties:
+        title:
+          type: string
+          title: Titre
+          maxLength: 255
+        title_en:
+          type: string
+          nullable: true
+          title: Titre (EN)
+          maxLength: 255
+        description:
+          type: string
+        description_en:
+          type: string
+          nullable: true
+          title: Description (EN)
+        image_url:
+          type: string
+          format: uri
+          title: URL de l'image
+          maxLength: 500
+        app_link:
+          type: string
+          format: uri
+          nullable: true
+          title: Lien de l'application
+          maxLength: 500
+        category:
+          type: string
+          title: Catégorie
+          maxLength: 100
+        color:
+          type: string
+          title: Couleur (HEX)
+          maxLength: 7
+        contact_email:
+          type: string
+          format: email
+          nullable: true
+          title: Email de contact
+          description: Email du gestionnaire de cette publicité
+          maxLength: 254
+        contact_telephone:
+          type: string
+          nullable: true
+          title: Téléphone de contact
+          description: Numéro WhatsApp/téléphone du gestionnaire
+          maxLength: 20
+        offre_id:
+          type: integer
+          writeOnly: true
+          description: ID de l'offre d'abonnement choisie
+      required:
+      - description
+      - image_url
+      - offre_id
+      - title
+    PubliciteStatutEnum:
       enum:
-      - exact
-      - similaire
-      - inconnu
+      - en_attente
+      - active
+      - expiree
+      - rejetee
       type: string
       description: |-
-        * `exact` - exact
-        * `similaire` - similaire
-        * `inconnu` - inconnu
+        * `en_attente` - En attente de validation
+        * `active` - Active
+        * `expiree` - Expirée
+        * `rejetee` - Rejetée
+    ServiceMarketplace:
+      type: object
+      description: Serializer pour les services de la marketplace (nos services).
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        nom:
+          type: string
+          title: Nom du service
+          maxLength: 255
+        nom_en:
+          type: string
+          nullable: true
+          title: Nom (EN)
+          maxLength: 255
+        description:
+          type: string
+        description_en:
+          type: string
+          nullable: true
+          title: Description (EN)
+        image_url:
+          type: string
+          format: uri
+          title: URL de l'image
+          maxLength: 500
+        lien_redirection:
+          type: string
+          format: uri
+          title: Lien de redirection
+          description: URL vers le service (app store, site web, etc.)
+          maxLength: 500
+        icone:
+          type: string
+          title: Icône
+          description: 'Nom de l''icône Lucide (ex: Zap, Car, MapPin)'
+          maxLength: 50
+        couleur:
+          type: string
+          title: Couleur (HEX)
+          maxLength: 7
+        ordre_affichage:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+          title: Ordre d'affichage
+        is_featured:
+          type: boolean
+          title: Mis en avant
+          description: Afficher en priorité dans les suggestions
+        is_active:
+          type: boolean
+          title: Actif
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - description
+      - id
+      - image_url
+      - lien_redirection
+      - nom
     Trajet:
       type: object
       description: |-
@@ -1174,10 +1946,8 @@ components:
       - sinuosite_indice
       - updated_at
   securitySchemes:
-    basicAuth:
-      type: http
-      scheme: basic
-    cookieAuth:
+    tokenAuth:
       type: apiKey
-      in: cookie
-      name: sessionid
+      in: header
+      name: Authorization
+      description: Token-based authentication with required prefix "ApiKey"

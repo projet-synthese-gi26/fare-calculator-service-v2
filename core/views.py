@@ -28,7 +28,7 @@ from rest_framework import viewsets, status
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.decorators import action
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, OpenApiParameter
 from django.utils import timezone
 from django.db.models import Avg, Min, Max, Count, Q
 from django.conf import settings
@@ -301,95 +301,125 @@ class ContactInfoViewSet(viewsets.ViewSet):
 
 class EstimateView(APIView):
     """
-    View principale pour estimation prix trajet : POST/GET /api/estimate/
+    View principale pour estimation prix trajet : POST /api/estimate/ et GET /api/estimate/
     
-    Accepte :
-        POST avec JSON body (EstimateInputSerializer)
-        GET avec query params (?depart_lat=X&depart_lon=Y&arrivee_lat=Z...)
-        
-    Workflow estimation hiérarchique :
-        1. Valider inputs via EstimateInputSerializer (conversion nom->coords si nécessaire)
-        2. Appliquer fallbacks variables optionnelles (heure, météo, type_zone) si manquantes
-        3. Filtrer candidats par quartiers départ/arrivée via reverse-geocoding (optimisation)
-        4. check_similar_match : Recherche trajets similaires avec 2 périmètres
-            a) Périmètre ÉTROIT (isochrone 2min / cercle 50m fallback)
-               - Vérifier points départ/arrivée dans isochrones Mapbox 2 minutes
-               - Si isochrones échouent (routes manquantes Cameroun) -> cercles Haversine 50m
-               - Si match + distance ±10% : PRIX DIRECT sans ajustement (fiabilité 0.9-0.95)
-               - Moyenne/min/max des prix trouvés
-            b) Périmètre ÉLARGI (isochrone 5min / cercle 150m fallback)
-               - Mêmes vérifications avec périmètres plus larges
-               - Si match : Calculer ajustements via Mapbox Matrix API
-                 * Distance extra (Matrix pour distance réelle départ->départ_bd, arrivée->arrivée_bd)
-                 * Ajustement prix : +50 CFA par km extra (configurable settings.ADJUSTMENT_PRIX_PAR_KM)
-                 * Congestion différente : +10% si user signale embouteillage (congestion_user>7)
-                 * Sinuosité différente : +20 CFA si indice>1.5 (routes tortueuses)
-               - PRIX AJUSTÉ (fiabilité 0.7-0.8)
-            c) Fallback VARIABLES (si pas de match avec heure/météo exactes)
-               - Chercher même périmètre mais avec heure différente (ex : matin->nuit)
-               - Chercher avec météo différente (ex : soleil->pluie)
-               - Appliquer ajustements standards :
-                 * Heure diff : +50 CFA si jour->nuit, -30 CFA si nuit->jour
-                 * Météo diff : +10% si soleil->pluie, -5% si pluie->soleil
-               - Noter dans réponse : "Prix basé sur trajets à heure différente (nuit)"
-        5. fallback_inconnu : Si aucun trajet similaire dans périmètres
-            - Estimation distance-based : Chercher distances similaires ±20%, extrapoler prix
-            - Estimation standardisée : Prix officiels Cameroun (300 CFA jour, 350 nuit)
-            - Estimation zone-based : Moyenne prix trajets dans arrondissement/ville
-            - Estimation ML : predict_prix_ml avec features (distance, heure, météo, zone, congestion)
-            - Retourne 4 estimations, fiabilité faible (0.5), invite à ajouter prix après trajet
-            - Retourner les 3-4 estimations avec message "Inconnu, fiabilité faible"
-        7. Construire objet Prediction (PredictionOutputSerializer) avec tous détails
-        8. Retourner JSON Response
-        
-    Exemples requêtes :
-        POST /api/estimate/
-        {
-            "depart": {"lat": 3.8547, "lon": 11.5021},
-            "arrivee": "Carrefour Ekounou",
-            "heure": "matin"
+    **AUTHENTIFICATION REQUISE:**
+    Toutes les requêtes doivent inclure le header :
+        Authorization: ApiKey <votre_clé_api>
+    Exemple: Authorization: ApiKey 974e9428-6ce2-48e7-b74b-93f572007ef8
+    
+    ====================
+    FORMAT DE REQUÊTE
+    ====================
+    
+    **POST /api/estimate/** (Recommandé)
+    Body JSON :
+    {
+        "depart": "Poste Centrale" OR {"label": "Poste Centrale"} OR {"lat": 3.8547, "lon": 11.5021},
+        "arrivee": "Carrefour Ekounou" OR {"label": "Carrefour Ekounou"} OR {"lat": 3.8667, "lon": 11.5174},
+        "heure": "matin" (optionnel: matin|apres-midi|soir|nuit),
+        "meteo": 0 (optionnel: 0=soleil|1=pluie-legere|2=pluie-forte|3=orage),
+        "type_zone": 0 (optionnel: 0=urbain|1=periurbain|2=rural),
+        "congestion_user": 5 (optionnel: 0-10 pour ajustements)
+    }
+    
+    **GET /api/estimate/**
+    Query params :
+        /api/estimate/?depart_lat=3.8547&depart_lon=11.5021&arrivee_lat=3.8667&arrivee_lon=11.5174
+        &heure=matin&meteo=0&type_zone=0&congestion_user=5
+    
+    ====================
+    FLEXIBILITÉ DES ENTRÉES
+    ====================
+    
+    **Entrée "depart" et "arrivee" :** 3 formats acceptés
+    1. Chaîne simple (géocodage automatique)
+       "depart": "Poste Centrale"
+    2. Dict avec label (géocodage automatique)
+       "depart": {"label": "Poste Centrale"}
+    3. Dict avec coordonnées (précision optimale)
+       "depart": {"lat": 3.8547, "lon": 11.5021}
+    
+    **Variables optionnelles :** 
+    - Si `heure` absent : Détectée automatiquement (datetime.now())
+    - Si `meteo` absent : Appelée via OpenMeteo API (coords départ)
+    - Si `type_zone` absent : Déduite via Mapbox (analyse classes routes)
+    - Si `congestion_user` absent : Défaut à 5 (neutre)
+    
+    ====================
+    LOGIQUE ESTIMATION
+    ====================
+    
+    1. **EXACT** (fiabilité 0.90-0.95)
+       - Même trajet départ→arrivée avec même heure/météo/zone
+       - Retourne moyenne/min/max des prix historiques
+    
+    2. **SIMILAIRE** (fiabilité 0.70-0.80)
+       - Périmètre élargi (isochrone 5min ou cercle 150m)
+       - Prix ajusté pour distance/congestion différente
+       - Ex: +50 CFA par km supplémentaire
+    
+    3. **INCONNU** (fiabilité 0.50)
+       - Trajet jamais observé
+       - Retourne 4 estimations:
+         * distance_based : selon distances connues similaires
+         * standardise : tarifs officiels (300 CFA jour, 350 nuit)
+         * zone_based : moyenne par arrondissement/ville
+         * ml_prediction : modèle ML sur features
+       - Invite l'utilisateur à ajouter le prix réel après trajet
+    
+    ====================
+    EXEMPLES COMPLETS
+    ====================
+    
+    **Exemple 1 : Avec noms uniquement**
+    curl -X POST "http://localhost:8000/api/estimate/" \\
+      -H "Authorization: ApiKey 974e9428-6ce2-48e7-b74b-93f572007ef8" \\
+      -H "Content-Type: application/json" \\
+      -d '{"depart": "Poste Centrale", "arrivee": "Mvan"}'
+    
+    **Exemple 2 : Avec coordonnées précises**
+    curl -X POST "http://localhost:8000/api/estimate/" \\
+      -H "Authorization: ApiKey 974e9428-6ce2-48e7-b74b-93f572007ef8" \\
+      -H "Content-Type: application/json" \\
+      -d '{
+        "depart": {"lat": 3.8547, "lon": 11.5021},
+        "arrivee": {"lat": 3.8667, "lon": 11.5174},
+        "heure": "matin",
+        "meteo": 0
+      }'
+    
+    **Exemple 3 : Via GET (URL)**
+    GET http://localhost:8000/api/estimate/?depart_lat=3.8547&depart_lon=11.5021&arrivee_lat=3.8667&arrivee_lon=11.5174&heure=matin
+    
+    ====================
+    RÉPONSE
+    ====================
+    
+    {
+        "statut": "exact|similaire|inconnu",
+        "prix_moyen": 250,
+        "prix_min": 200,
+        "prix_max": 300,
+        "fiabilite": 0.95,
+        "message": "Description du résultat",
+        "details_trajet": {
+            "distance_km": 2.95,
+            "duree_estimee_sec": 591,
+            "heure_utilisee": "matin",
+            "meteo_utilisee": 0,
+            "zone_utilisee": 0
+        },
+        "ajustements_appliques": [
+            "+50 CFA pour 0.5km supplémentaire"
+        ],
+        "estimations_supplementaires": {  # Si statut=inconnu
+            "distance_based": 260,
+            "standardise": 300,
+            "zone_based": 270,
+            "ml_prediction": 285
         }
-        
-        GET /api/estimate/?depart_lat=3.8547&depart_lon=11.5021&arrivee_lat=3.8667&arrivee_lon=11.5174&heure=matin
-        
-    Exemples réponses :
-        # Cas exact
-        {
-            "statut": "exact",
-            "prix_moyen": 250,
-            "prix_min": 200,
-            "prix_max": 300,
-            "fiabilite": 0.95,
-            "message": "Estimation basée sur 8 trajets exacts similaires.",
-            "details_trajet": {...},
-            "ajustements_appliques": {...}
-        }
-        
-        # Cas similaire
-        {
-            "statut": "similaire",
-            "prix_moyen": 270,
-            "prix_min": 250,
-            "prix_max": 290,
-            "fiabilite": 0.75,
-            "message": "Estimation ajustée depuis trajets similaires (+20 CFA pour distance extra).",
-            ...
-        }
-        
-        # Cas inconnu
-        {
-            "statut": "inconnu",
-            "prix_moyen": 280,
-            "estimations_supplementaires": {
-                "distance_based": 260,
-                "standardise": 300,
-                "zone_based": 270,
-                "ml_prediction": 285
-            },
-            "fiabilite": 0.50,
-            "message": "Trajet inconnu. Estimations approximatives. Ajoutez votre prix après trajet.",
-            "suggestions": ["Fiabilité faible, négociez prudemment"]
-        }
+    }
     """
     
     serializer_class = EstimateInputSerializer
@@ -397,22 +427,8 @@ class EstimateView(APIView):
     @extend_schema(
         request=EstimateInputSerializer, 
         responses=PredictionOutputSerializer,
-        description="""
-        Endpoint principal d'estimation de prix.
-        
-        **Flexibilité des paramètres :**
-        - Les coordonnées (`lat`/`lon`) sont **optionnelles** si un nom de lieu (`label`) est fourni.
-        - L'API effectuera un géocodage automatique si nécessaire.
-        - Les paramètres `heure`, `meteo`, `type_zone` sont **optionnels** (détectés automatiquement si omis).
-        
-        **Exemple minimaliste (Noms de lieux uniquement) :**
-        ```json
-        {
-            "depart": {"label": "Poste Centrale"},
-            "arrivee": {"label": "Mvan"}
-        }
-        ```
-        """
+        description="Estimer le prix d'un trajet taxi. Accepte coordonnées OU noms de lieux. " +
+                    "Variables (heure, météo, zone) détectées automatiquement si manquantes."
     )
     def post(self, request):
         """Endpoint POST /api/estimate/ avec JSON body."""
@@ -423,6 +439,80 @@ class EstimateView(APIView):
         validated_data = serializer.validated_data
         return self._process_estimate(validated_data)
     
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name='depart_lat',
+                description='Latitude du point de départ (coordonnées)',
+                required=True,
+                type=float,
+                location=OpenApiParameter.QUERY
+            ),
+            OpenApiParameter(
+                name='depart_lon',
+                description='Longitude du point de départ (coordonnées)',
+                required=True,
+                type=float,
+                location=OpenApiParameter.QUERY
+            ),
+            OpenApiParameter(
+                name='arrivee_lat',
+                description='Latitude du point d\'arrivée (coordonnées)',
+                required=True,
+                type=float,
+                location=OpenApiParameter.QUERY
+            ),
+            OpenApiParameter(
+                name='arrivee_lon',
+                description='Longitude du point d\'arrivée (coordonnées)',
+                required=True,
+                type=float,
+                location=OpenApiParameter.QUERY
+            ),
+            OpenApiParameter(
+                name='heure',
+                description='Heure du trajet (optionnel: matin|apres-midi|soir|nuit). Détectée automatiquement si omise.',
+                required=False,
+                type=str,
+                location=OpenApiParameter.QUERY
+            ),
+            OpenApiParameter(
+                name='meteo',
+                description='Condition météo (optionnel: 0=soleil|1=pluie-legere|2=pluie-forte|3=orage). Détectée automatiquement via API si omise.',
+                required=False,
+                type=int,
+                location=OpenApiParameter.QUERY
+            ),
+            OpenApiParameter(
+                name='type_zone',
+                description='Type de zone (optionnel: 0=urbain|1=periurbain|2=rural). Déduit automatiquement si omis.',
+                required=False,
+                type=int,
+                location=OpenApiParameter.QUERY
+            ),
+            OpenApiParameter(
+                name='congestion_user',
+                description='Niveau de congestion perçu (optionnel: 0-10). Défaut=5 (neutre) si omis.',
+                required=False,
+                type=int,
+                location=OpenApiParameter.QUERY
+            ),
+        ],
+        responses=PredictionOutputSerializer,
+        description="""
+        Endpoint GET /api/estimate/ avec paramètres URL (alternative au POST).
+        
+        **Flexibilité des paramètres :**
+        - Les coordonnées (lat/lon) sont **requises** en GET.
+        - Les paramètres `heure`, `meteo`, `type_zone`, `congestion_user` sont **optionnels** (détectés/déduits automatiquement).
+        - Format identique au POST en termes de logique estimation.
+        
+        **Exemple URL :**
+        ```
+        GET /api/estimate/?depart_lat=3.8547&depart_lon=11.5021&arrivee_lat=3.8667&arrivee_lon=11.5174&heure=matin&meteo=0
+        ```
+        """
+    )
     def get(self, request):
         """Endpoint GET /api/estimate/ avec query params (conversion vers format POST)."""
         # Convertir query params vers format EstimateInputSerializer

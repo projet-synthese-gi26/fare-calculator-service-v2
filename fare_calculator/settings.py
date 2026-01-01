@@ -164,6 +164,9 @@ REST_FRAMEWORK = {
         'rest_framework.parsers.JSONParser',
     ],
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'core.middleware.ApiKeyAuthentication',
+    ],
 }
 
 SPECTACULAR_SETTINGS = {
@@ -172,6 +175,19 @@ SPECTACULAR_SETTINGS = {
     'VERSION': '2.0.0',
     'SERVE_PERMISSIONS': ['rest_framework.permissions.AllowAny'],
     'CONTACT': {'email': 'donfackarthur750@gmail.com'},
+    
+    # Configuration de l'authentification ApiKey pour Swagger
+    'DEFAULT_SECURITY_SCHEMES': {
+        'ApiKeyAuth': {
+            'type': 'apiKey',
+            'in': 'header',
+            'name': 'Authorization',
+            'description': 'Format: "ApiKey <votre_clé_api>" (ex: ApiKey 974e9428-6ce2-48e7-b74b-93f572007ef8)',
+        },
+    },
+    'SECURITY': [
+        {'ApiKeyAuth': []}
+    ],
 }
 # REST Framework Pagination
 

@@ -9,7 +9,14 @@ class CoreConfig(AppConfig):
         # Initialisation du prédicteur ML au démarrage
         # Import local pour éviter les problèmes de chargement circulaire
         # from .ml.predictor import TaxiFarePredictor
-        from .ml.classifier_predictor import TaxiFareClassifierPredictor
-        global taxi_predictor
-        # taxi_predictor = TaxiFarePredictor()
-        taxi_predictor = TaxiFareClassifierPredictor()
+        try:
+            from .ml.classifier_predictor import TaxiFareClassifierPredictor
+            global taxi_predictor
+            # taxi_predictor = TaxiFarePredictor()
+            taxi_predictor = TaxiFareClassifierPredictor()
+        except Exception as e:
+            # Si le modèle ML ne peut pas être chargé, on continue sans
+            # C'est important pour les commandes Django comme `spectacular` qui n'en ont pas besoin
+            import sys
+            print(f"[Warning] ML Predictor not available: {e}", file=sys.stderr)
+            taxi_predictor = None

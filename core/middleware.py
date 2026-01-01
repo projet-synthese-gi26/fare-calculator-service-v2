@@ -161,3 +161,63 @@ class ApiKeyMiddleware:
                 },
                 status=500
             )
+
+
+# Classe d'authentification DRF pour Swagger/drf-spectacular
+from rest_framework.authentication import TokenAuthentication, get_authorization_header
+from rest_framework.exceptions import AuthenticationFailed
+
+class ApiKeyAuthentication(TokenAuthentication):
+    """
+    Classe d'authentification DRF pour intégration avec drf-spectacular.
+    
+    Détecte le header "Authorization: ApiKey <clé>" et valide la clé.
+    Utilisée par drf-spectacular pour générer la documentation Swagger.
+    
+    Note: La validation réelle se fait via ApiKeyMiddleware au niveau Django.
+    Cette classe sert surtout à faire comprendre à Swagger comment s'authentifier.
+    """
+    keyword = 'ApiKey'
+    
+    def get_model(self):
+        from .models import ApiKey
+        return ApiKey
+    
+    def authenticate(self, request):
+        """Valide la clé API depuis le header Authorization."""
+        auth = get_authorization_header(request).split()
+        
+        if not auth or auth[0].lower() != b'apikey':
+            return None  # Pas d'authentification fournie, continuer
+        
+        if len(auth) == 1:
+            msg = 'Invalid token header. No credentials provided.'
+            raise AuthenticationFailed(msg)
+        elif len(auth) > 2:
+            msg = 'Invalid token header. Token string should not contain spaces.'
+            raise AuthenticationFailed(msg)
+        
+        try:
+            token = auth[1].decode()
+        except UnicodeError:
+            msg = 'Invalid token header. Token string should not contain invalid characters.'
+            raise AuthenticationFailed(msg)
+        
+        return self.authenticate_credentials(token)
+    
+    def authenticate_credentials(self, key):
+        """Valide la clé et retourne un tuple (user, auth) pour DRF."""
+        from .models import ApiKey
+        
+        try:
+            api_key = ApiKey.objects.get(key=key, is_active=True)
+        except ApiKey.DoesNotExist:
+            raise AuthenticationFailed('Invalid token.')
+        
+        # Mettre à jour last_used
+        from django.utils import timezone
+        api_key.last_used = timezone.now()
+        api_key.save(update_fields=['last_used'])
+        
+        # Retourner (user=None, auth=api_key) pour drf-spectacular
+        return (None, api_key)

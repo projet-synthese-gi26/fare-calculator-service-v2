@@ -586,6 +586,30 @@ class Publicite(models.Model):
         return abonnement_actif
 
 
+class AbonnementQuerySet(models.QuerySet):
+    """Custom QuerySet pour Abonnement."""
+    
+    def mettre_a_jour_expirations(self):
+        """Marque les abonnements passés la date_fin comme 'expire'."""
+        from django.utils import timezone
+        maintenant = timezone.now()
+        self.filter(
+            statut='actif',
+            date_fin__lte=maintenant
+        ).update(statut='expire')
+
+
+class AbonnementManager(models.Manager):
+    """Custom Manager pour Abonnement."""
+    
+    def get_queryset(self):
+        return AbonnementQuerySet(self.model, using=self._db)
+    
+    def mettre_a_jour_expirations(self):
+        """Marque les abonnements passés la date_fin comme 'expire'."""
+        return self.get_queryset().mettre_a_jour_expirations()
+
+
 class Abonnement(models.Model):
     """
     Modèle pour gérer les abonnements/souscriptions des partenaires.
@@ -593,6 +617,9 @@ class Abonnement(models.Model):
     Un abonnement lie une publicité à une offre d'abonnement avec des dates
     de validité et un statut.
     """
+    # Custom manager
+    objects = AbonnementManager()
+    
     # Constantes pour les statuts
     STATUT_EN_ATTENTE = 'en_attente'
     STATUT_ACTIF = 'actif'
