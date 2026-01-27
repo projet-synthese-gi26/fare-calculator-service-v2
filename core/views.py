@@ -1522,7 +1522,7 @@ class EstimateView(APIView):
                 prix_moyen *= (1 + ajust_meteo_pourcent / 100.0)
                 ajustements['ajustement_meteo_pourcent'] = ajust_meteo_pourcent
                 meteo_names = {0: 'soleil', 1: 'pluie légère', 2: 'pluie forte', 3: 'orage'}
-                notes.append(f"Prix basé sur trajets '{meteo_names.get(trajets_match[0].meteo, 'inconnu')}' ({ajust_meteo_pourcent:+d}% vs '{meteo_names.get(meteo, 'inconnu')}' demandé)")
+                notes.append(f"Prix basé sur trajets '{meteo_names.get(trajets_match[0].meteo, 'inconnu')}' ({int(ajust_meteo_pourcent):+d}% vs '{meteo_names.get(meteo, 'inconnu')}' demandé)")
         
         # Message final
         message_base = f"Estimation basée sur {len(trajets_match)} trajets"
