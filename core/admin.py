@@ -547,19 +547,19 @@ class MobileUserAdmin(admin.ModelAdmin):
     Ces utilisateurs s'authentifient via leur numéro de téléphone sur l'app mobile.
     Ce système est séparé de l'auth admin Django et des ApiKeys.
     """
-    list_display = ['phone_number', 'display_name', 'is_active', 'created_at', 'last_login']
-    list_filter = ['is_active', 'created_at', 'last_login']
-    search_fields = ['phone_number', 'display_name', 'firebase_uid']
-    readonly_fields = ['firebase_uid', 'phone_number', 'created_at', 'last_login']
+    list_display = ['primary_contact', 'auth_method', 'is_active', 'created_at', 'last_login']
+    list_filter = ['auth_method', 'is_active', 'created_at', 'last_login']
+    search_fields = ['email', 'phone_number', 'display_name', 'firebase_uid']
+    readonly_fields = ['firebase_uid', 'phone_number', 'email', 'photo_url', 'auth_method', 'created_at', 'last_login']
     ordering = ['-last_login', '-created_at']
     
     fieldsets = (
         ('Identité Firebase', {
-            'fields': ('firebase_uid', 'phone_number'),
+            'fields': ('firebase_uid', 'auth_method'),
             'description': 'Ces champs sont gérés par Firebase et ne peuvent pas être modifiés.'
         }),
         ('Profil utilisateur', {
-            'fields': ('display_name', 'is_active'),
+            'fields': ('display_name', 'email', 'phone_number', 'photo_url', 'is_active'),
         }),
         ('Statistiques', {
             'fields': ('created_at', 'last_login'),
@@ -573,6 +573,11 @@ class MobileUserAdmin(admin.ModelAdmin):
         Les MobileUsers sont créés automatiquement via Firebase Auth.
         """
         return False
+
+    def primary_contact(self, obj):
+        """Affiche l'email si disponible, sinon le nom ou le téléphone."""
+        return obj.email or obj.display_name or obj.phone_number or obj.firebase_uid
+    primary_contact.short_description = "Identifiant"
     
     actions = ['desactiver_utilisateurs', 'reactiver_utilisateurs']
     
