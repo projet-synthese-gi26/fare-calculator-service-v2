@@ -2,16 +2,20 @@
 
 <img src="doc/taxi-logo.png" alt="Taxi Fare Calculator" width="200"/>
 
-# Taxi Fare Calculator API
+# Fare Calculator — Backend API
 
-### Service d'Estimation Intelligente des Prix de Taxi au Cameroun
+### Service d’estimation intelligente des prix de taxi au Cameroun (focus Yaoundé)
 
 [![Django](https://img.shields.io/badge/Django-5.2.1-092E20?style=for-the-badge&logo=django&logoColor=white)](https://www.djangoproject.com/)
 [![DRF](https://img.shields.io/badge/DRF-3.16.0-ff1709?style=for-the-badge&logo=django&logoColor=white)](https://www.django-rest-framework.org/)
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
+[![Celery](https://img.shields.io/badge/Celery-5.4-37814A?style=for-the-badge&logo=celery&logoColor=white)](https://docs.celeryq.dev/)
+[![Redis](https://img.shields.io/badge/Redis-5-DC382D?style=for-the-badge&logo=redis&logoColor=white)](https://redis.io/)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-14+-336791?style=for-the-badge&logo=postgresql&logoColor=white)](https://www.postgresql.org/)
+[![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://www.docker.com/)
 [![Mapbox](https://img.shields.io/badge/Mapbox-API-000000?style=for-the-badge&logo=mapbox&logoColor=white)](https://www.mapbox.com/)
 
-[**Documentation**](#documentation-complète) • [**Installation**](#installation) • [**API Docs**](API_DOC.md) • [**Guide ML**](#guide-dimplémentation-ml)
+[**Vue d’ensemble**](#vue-densemble) • [**Installation**](#installation) • [**API Docs**](API_DOC.md) • [**Documentation**](#documentation-complète) • [**Guide ML**](#guide-dimplémentation-ml)
 
 </div>
 
