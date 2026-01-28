@@ -14,9 +14,15 @@ Routes exposées :
     - GET /api/contact-info/ : Informations de contact du footer
     - GET /api/stats/ : Statistiques globales
     - GET /api/health/ : Health check (monitoring)
+    
+    Routes Auth Mobile (Firebase) :
+    - POST /api/auth/verify-token/ : Vérifier token Firebase et créer/retourner utilisateur
+    - GET /api/auth/me/ : Obtenir profil utilisateur connecté
+    - PATCH /api/auth/me/ : Mettre à jour profil utilisateur
 
 Authentification :
-    - Toutes routes /api/* (sauf /health/) nécessitent ApiKey header
+    - Toutes routes /api/* (sauf /health/ et /auth/*) nécessitent ApiKey header
+    - Routes /api/auth/* utilisent Bearer token Firebase (pas ApiKey)
     - Gérée par middleware core.middleware.ApiKeyMiddleware
 """
 
@@ -34,6 +40,11 @@ from .views import (
     AbonnementViewSet,
     ServiceMarketplaceViewSet,
     ContactInfoViewSet
+)
+from .auth_views import (
+    FirebaseVerifyTokenView,
+    FirebaseUserMeView,
+    FirebaseUserUpdateView
 )
 
 # Router DRF pour ViewSets CRUD
@@ -67,4 +78,13 @@ urlpatterns = [
 
     # Health check (pas d'auth requise)
     path('health/', HealthCheckView.as_view(), name='health'),
+    
+    # ========================================
+    # Routes Authentification Mobile (Firebase)
+    # Ces routes n'utilisent PAS ApiKey, mais Bearer token Firebase
+    # Exemptées du middleware ApiKey
+    # ========================================
+    path('auth/verify-token/', FirebaseVerifyTokenView.as_view(), name='auth-verify-token'),
+    path('auth/me/', FirebaseUserMeView.as_view(), name='auth-me'),
+    path('auth/profile/', FirebaseUserUpdateView.as_view(), name='auth-profile-update'),
 ]

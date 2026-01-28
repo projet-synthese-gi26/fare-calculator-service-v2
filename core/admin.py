@@ -5,7 +5,7 @@ from django.utils.safestring import mark_safe
 from django.utils import timezone
 from .models import (
     Point, Trajet, ApiKey, Publicite,
-    OffreAbonnement, Abonnement, ServiceMarketplace, ContactInfo
+    OffreAbonnement, Abonnement, ServiceMarketplace, ContactInfo, MobileUser
 )
 
 
@@ -537,6 +537,54 @@ class ContactInfoAdmin(admin.ModelAdmin):
     def has_delete_permission(self, request, obj=None):
         """Empêche la suppression du ContactInfo."""
         return False
+
+
+@admin.register(MobileUser)
+class MobileUserAdmin(admin.ModelAdmin):
+    """
+    Administration des utilisateurs mobiles (Firebase Phone Auth).
+    
+    Ces utilisateurs s'authentifient via leur numéro de téléphone sur l'app mobile.
+    Ce système est séparé de l'auth admin Django et des ApiKeys.
+    """
+    list_display = ['phone_number', 'display_name', 'is_active', 'created_at', 'last_login']
+    list_filter = ['is_active', 'created_at', 'last_login']
+    search_fields = ['phone_number', 'display_name', 'firebase_uid']
+    readonly_fields = ['firebase_uid', 'phone_number', 'created_at', 'last_login']
+    ordering = ['-last_login', '-created_at']
+    
+    fieldsets = (
+        ('Identité Firebase', {
+            'fields': ('firebase_uid', 'phone_number'),
+            'description': 'Ces champs sont gérés par Firebase et ne peuvent pas être modifiés.'
+        }),
+        ('Profil utilisateur', {
+            'fields': ('display_name', 'is_active'),
+        }),
+        ('Statistiques', {
+            'fields': ('created_at', 'last_login'),
+            'classes': ('collapse',)
+        }),
+    )
+    
+    def has_add_permission(self, request):
+        """
+        Empêche la création manuelle d'utilisateurs.
+        Les MobileUsers sont créés automatiquement via Firebase Auth.
+        """
+        return False
+    
+    actions = ['desactiver_utilisateurs', 'reactiver_utilisateurs']
+    
+    @admin.action(description="Désactiver les utilisateurs sélectionnés")
+    def desactiver_utilisateurs(self, request, queryset):
+        count = queryset.update(is_active=False)
+        self.message_user(request, f"{count} utilisateur(s) désactivé(s).")
+    
+    @admin.action(description="Réactiver les utilisateurs sélectionnés")
+    def reactiver_utilisateurs(self, request, queryset):
+        count = queryset.update(is_active=True)
+        self.message_user(request, f"{count} utilisateur(s) réactivé(s).")
 
 
 # Personnalisation du site admin

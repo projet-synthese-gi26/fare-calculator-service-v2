@@ -57,6 +57,7 @@ class ApiKeyMiddleware:
         r'^/api/docs/',    # Documentation API (si implémentée)
         r'^/api/doc',      # Alias documentation (pour éviter erreurs typo)
         r'^/api/schema/',  # Schema OpenAPI
+        r'^/api/auth/',    # Auth Firebase Mobile (utilise Bearer token, pas ApiKey)
         r'^/static/',      # Fichiers statiques
         r'^/media/',       # Fichiers media
     ]
