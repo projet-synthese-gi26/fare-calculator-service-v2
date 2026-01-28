@@ -883,36 +883,28 @@ class ContactInfo(models.Model):
 
 class MobileUser(models.Model):
     """
-    Représente un utilisateur mobile authentifié via Firebase Phone Auth.
+    Représente un utilisateur mobile authentifié via Firebase (multi-mode).
     
-    Ce modèle permet de stocker les utilisateurs qui s'authentifient via leur
-    numéro de téléphone (style Yango/Uber). L'authentification reste optionnelle
-    et n'affecte pas le fonctionnement principal de l'API.
+    Ce modèle supporte plusieurs méthodes d'authentification :
+        - Phone + SMS (Firebase Phone Auth, nécessite plan Blaze payant)
+        - Phone + Password (Firebase Email/Password avec email simulé)
+        - Google OAuth (Firebase Google Provider)
     
     IMPORTANT : Ce système coexiste avec les autres mécanismes d'auth :
         - ApiKey : Pour les partenaires/développeurs externes (inchangé)
         - Django Admin : Username/password pour l'admin (inchangé)
-        - MobileUser : Pour les utilisateurs de l'app mobile (NOUVEAU)
+        - MobileUser : Pour les utilisateurs de l'app mobile
     
     Workflow :
-        1. User s'authentifie via Firebase Phone Auth sur le frontend
+        1. User s'authentifie via Firebase sur le frontend (SMS, mot de passe ou Google)
         2. Frontend reçoit un ID Token Firebase
         3. Frontend envoie ce token au backend via POST /api/auth/verify-token/
         4. Backend vérifie le token avec Firebase Admin SDK
         5. Backend crée/récupère MobileUser et retourne les infos user
         
-    Champs :
-        firebase_uid (str) : UID unique Firebase (ex. "AbCdEf123456...")
-        phone_number (str) : Numéro de téléphone (ex. "+237699999999")
-        display_name (str, optionnel) : Nom d'affichage (si fourni)
-        is_active (bool) : Si l'utilisateur peut utiliser le service
-        created_at (datetime) : Date de première connexion
-        last_login (datetime) : Date de dernière connexion
-        
-    Note sur la confidentialité :
-        Les numéros de téléphone sont des données sensibles. Ce système est conçu
-        pour créer une base d'utilisateurs pour de futures fonctionnalités, sans
-        lier les trajets aux utilisateurs pour le moment (anonymat préservé).
+    Les comptes sont compatibles entre les modes grâce au Firebase UID unique.
+    Un utilisateur qui se connecte d'abord par téléphone puis par Google aura
+    le même compte s'il lie les providers dans Firebase.
     """
     firebase_uid = models.CharField(
         max_length=128,
@@ -923,9 +915,17 @@ class MobileUser(models.Model):
     )
     phone_number = models.CharField(
         max_length=20,
-        unique=True,
+        null=True,
+        blank=True,
         verbose_name="Numéro de téléphone",
         help_text="Numéro de téléphone au format international (ex. +237699999999)",
+        db_index=True
+    )
+    email = models.EmailField(
+        null=True,
+        blank=True,
+        verbose_name="Email",
+        help_text="Email de l'utilisateur (pour Google Auth)",
         db_index=True
     )
     display_name = models.CharField(
@@ -933,7 +933,24 @@ class MobileUser(models.Model):
         null=True,
         blank=True,
         verbose_name="Nom d'affichage",
-        help_text="Nom d'affichage optionnel de l'utilisateur"
+        help_text="Nom d'affichage de l'utilisateur"
+    )
+    photo_url = models.URLField(
+        null=True,
+        blank=True,
+        verbose_name="Photo de profil",
+        help_text="URL de la photo de profil (Google)"
+    )
+    auth_method = models.CharField(
+        max_length=20,
+        default='phone_sms',
+        verbose_name="Méthode d'auth",
+        help_text="Méthode d'authentification utilisée (phone_sms, phone_password, google)",
+        choices=[
+            ('phone_sms', 'Téléphone SMS'),
+            ('phone_password', 'Téléphone + Mot de passe'),
+            ('google', 'Google OAuth'),
+        ]
     )
     is_active = models.BooleanField(
         default=True,
@@ -956,9 +973,15 @@ class MobileUser(models.Model):
         ordering = ['-created_at']
     
     def __str__(self):
-        return f"{self.phone_number} ({self.display_name or 'Sans nom'})"
+        identifier = self.phone_number or self.email or self.firebase_uid[:8]
+        return f"{identifier} ({self.display_name or self.auth_method})"
     
     def update_last_login(self):
         """Met à jour la date de dernière connexion."""
         self.last_login = timezone.now()
         self.save(update_fields=['last_login'])
+    
+    @property
+    def primary_identifier(self):
+        """Retourne l'identifiant principal (téléphone, email ou UID)."""
+        return self.phone_number or self.email or self.firebase_uid
