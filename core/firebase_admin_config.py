@@ -40,8 +40,19 @@ def initialize_firebase() -> bool:
     """
     global _firebase_initialized
     
+    # Vérifier si déjà initialisé via le flag
     if _firebase_initialized:
         return True
+    
+    # Vérifier si l'app par défaut existe déjà (cas multi-thread/multi-process)
+    try:
+        firebase_admin.get_app()
+        logger.debug("Firebase Admin SDK déjà initialisé (app existante)")
+        _firebase_initialized = True
+        return True
+    except ValueError:
+        # L'app n'existe pas encore, on continue l'initialisation
+        pass
     
     try:
         # Option 1 : Fichier de credentials via variable d'environnement

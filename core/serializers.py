@@ -818,14 +818,21 @@ from .models import OffreAbonnement, Abonnement, ServiceMarketplace, ContactInfo
 
 class MobileUserSerializer(serializers.ModelSerializer):
     """
-    Serializer pour MobileUser (utilisateurs authentifiés via Firebase Phone Auth).
+    Serializer pour MobileUser (utilisateurs authentifiés via Firebase multi-mode).
+    
+    Supporte plusieurs méthodes d'authentification :
+        - Phone + SMS (Firebase Phone Auth)
+        - Phone + Password (Firebase Email/Password avec email simulé)
+        - Google OAuth (Firebase Google Provider)
     
     Utilisé pour :
         - Retourner les infos utilisateur après vérification du token Firebase
         - Afficher les informations de profil utilisateur
         
     Champs exposés :
-        - id, phone_number, display_name : Identifiants et nom
+        - id, phone_number, email, display_name : Identifiants
+        - photo_url : Photo de profil (Google)
+        - auth_method : Méthode d'authentification utilisée
         - is_active : Statut du compte
         - created_at, last_login : Dates importantes
         
@@ -836,13 +843,16 @@ class MobileUserSerializer(serializers.ModelSerializer):
         model = MobileUser
         fields = [
             'id', 
-            'phone_number', 
-            'display_name', 
+            'phone_number',
+            'email',
+            'display_name',
+            'photo_url',
+            'auth_method',
             'is_active', 
             'created_at', 
             'last_login'
         ]
-        read_only_fields = ['id', 'phone_number', 'created_at', 'last_login']
+        read_only_fields = ['id', 'phone_number', 'email', 'auth_method', 'created_at', 'last_login']
 
 
 class FirebaseTokenVerifySerializer(serializers.Serializer):

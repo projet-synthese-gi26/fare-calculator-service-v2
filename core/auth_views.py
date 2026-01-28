@@ -1,8 +1,12 @@
 """
-Vues pour l'authentification Firebase Phone Auth.
+Vues pour l'authentification Firebase multi-mode.
 
-Ces vues permettent aux utilisateurs mobiles de s'authentifier via leur
-numéro de téléphone sans affecter les autres systèmes d'authentification :
+Ces vues permettent aux utilisateurs mobiles de s'authentifier via :
+    - Téléphone + SMS (plan Firebase Blaze requis)
+    - Téléphone + Mot de passe (gratuit, email simulé)
+    - Google OAuth
+
+Ces méthodes n'affectent pas les autres systèmes d'authentification :
     - ApiKey pour les partenaires/développeurs (middleware inchangé)
     - Django Admin username/password (inchangé)
 
@@ -12,6 +16,7 @@ Endpoints :
 """
 
 import logging
+import re
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
@@ -29,14 +34,36 @@ from .firebase_admin_config import verify_firebase_token
 logger = logging.getLogger(__name__)
 
 
+def extract_phone_from_email(email: str) -> str | None:
+    """
+    Extrait le numéro de téléphone depuis un email simulé.
+    
+    Format attendu : 237XXXXXXXXX@farecalc.phone
+    Retourne : +237XXXXXXXXX ou None si pas d'email simulé
+    """
+    if not email or not email.endswith('@farecalc.phone'):
+        return None
+    
+    digits = email.replace('@farecalc.phone', '')
+    if digits.startswith('237') and len(digits) == 12:
+        return f'+{digits}'
+    
+    return None
+
+
 class FirebaseVerifyTokenView(APIView):
     """
     Vérifie un token Firebase ID et crée/retourne l'utilisateur mobile.
     
+    Supporte plusieurs modes d'authentification :
+        - phone_sms : Token avec phone_number (plan Blaze)
+        - phone_password : Token avec email simulé (237xxx@farecalc.phone)
+        - google : Token avec email Google
+    
     Workflow :
-        1. Reçoit POST avec { "id_token": "..." }
+        1. Reçoit POST avec { "id_token": "...", "auth_method": "..." }
         2. Vérifie le token avec Firebase Admin SDK
-        3. Extrait UID et numéro de téléphone
+        3. Extrait UID et identifiant (téléphone ou email)
         4. Crée ou récupère MobileUser en base
         5. Met à jour last_login
         6. Retourne les infos utilisateur
@@ -76,6 +103,8 @@ class FirebaseVerifyTokenView(APIView):
             }, status=status.HTTP_400_BAD_REQUEST)
         
         id_token = serializer.validated_data['id_token']
+        # auth_method peut être passé par le frontend pour indiquer le mode utilisé
+        auth_method_hint = request.data.get('auth_method', None)
         
         try:
             # Vérifier le token avec Firebase Admin SDK
@@ -88,9 +117,12 @@ class FirebaseVerifyTokenView(APIView):
                     "detail": "Le token Firebase est invalide, expiré ou révoqué"
                 }, status=status.HTTP_401_UNAUTHORIZED)
             
-            # Extraire les informations
+            # Extraire les informations du token
             firebase_uid = decoded_token.get('uid')
-            phone_number = decoded_token.get('phone_number')
+            phone_number = decoded_token.get('phone_number')  # Phone Auth SMS
+            email = decoded_token.get('email')  # Email/Password ou Google
+            name = decoded_token.get('name')
+            picture = decoded_token.get('picture')
             
             if not firebase_uid:
                 return Response({
@@ -99,20 +131,41 @@ class FirebaseVerifyTokenView(APIView):
                     "detail": "UID Firebase manquant dans le token"
                 }, status=status.HTTP_401_UNAUTHORIZED)
             
-            if not phone_number:
-                return Response({
-                    "success": False,
-                    "error": "Numéro de téléphone manquant",
-                    "detail": "Le token ne contient pas de numéro de téléphone. "
-                              "Assurez-vous d'utiliser l'authentification par téléphone Firebase."
-                }, status=status.HTTP_400_BAD_REQUEST)
+            # Déterminer le mode d'authentification et extraire les identifiants
+            auth_method = 'phone_sms'  # Par défaut
+            extracted_phone = None
+            
+            if phone_number:
+                # Mode SMS : numéro directement dans le token
+                auth_method = 'phone_sms'
+                extracted_phone = phone_number
+            elif email:
+                # Vérifier si c'est un email simulé (mode phone_password)
+                simulated_phone = extract_phone_from_email(email)
+                if simulated_phone:
+                    auth_method = 'phone_password'
+                    extracted_phone = simulated_phone
+                else:
+                    # Email réel (Google OAuth)
+                    auth_method = 'google'
+            
+            # Respecter le hint du frontend si cohérent
+            if auth_method_hint and auth_method_hint in ['phone_sms', 'phone_password', 'google']:
+                # Ne remplacer que si c'est cohérent avec les données
+                if auth_method_hint == 'google' and email and not email.endswith('@farecalc.phone'):
+                    auth_method = 'google'
+                elif auth_method_hint == 'phone_password' and extracted_phone:
+                    auth_method = 'phone_password'
             
             # Créer ou récupérer l'utilisateur
             user, is_new_user = MobileUser.objects.get_or_create(
                 firebase_uid=firebase_uid,
                 defaults={
-                    'phone_number': phone_number,
-                    'display_name': decoded_token.get('name'),
+                    'phone_number': extracted_phone,
+                    'email': email if auth_method == 'google' else None,
+                    'display_name': name,
+                    'photo_url': picture,
+                    'auth_method': auth_method,
                 }
             )
             
@@ -124,16 +177,38 @@ class FirebaseVerifyTokenView(APIView):
                     "detail": "Votre compte a été désactivé. Contactez le support."
                 }, status=status.HTTP_403_FORBIDDEN)
             
-            # Mettre à jour le numéro si changé (rare mais possible)
-            if user.phone_number != phone_number:
-                user.phone_number = phone_number
-                user.save(update_fields=['phone_number'])
+            # Mettre à jour les informations si elles ont changé
+            fields_to_update = []
+            
+            if extracted_phone and user.phone_number != extracted_phone:
+                user.phone_number = extracted_phone
+                fields_to_update.append('phone_number')
+            
+            if auth_method == 'google' and email and user.email != email:
+                user.email = email
+                fields_to_update.append('email')
+            
+            if name and user.display_name != name:
+                user.display_name = name
+                fields_to_update.append('display_name')
+            
+            if picture and user.photo_url != picture:
+                user.photo_url = picture
+                fields_to_update.append('photo_url')
+            
+            if user.auth_method != auth_method:
+                user.auth_method = auth_method
+                fields_to_update.append('auth_method')
+            
+            if fields_to_update:
+                user.save(update_fields=fields_to_update)
             
             # Mettre à jour last_login
             user.update_last_login()
             
+            identifier = extracted_phone or email or firebase_uid[:8]
             logger.info(
-                f"Utilisateur mobile authentifié: {phone_number} "
+                f"Utilisateur mobile authentifié ({auth_method}): {identifier} "
                 f"(UID: {firebase_uid}, nouveau: {is_new_user})"
             )
             
