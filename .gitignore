@@ -14,3 +14,6 @@ __pycache__/
 .DS_Store
 gates
 gates.pub
+
+# firebase-service-account.json
+# *-firebase-adminsdk-*.json

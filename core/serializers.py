@@ -813,4 +813,73 @@ class ContactInfoSerializer(serializers.ModelSerializer):
 
 
 # Import des nouveaux modèles pour les serializers
-from .models import OffreAbonnement, Abonnement, ServiceMarketplace, ContactInfo
+from .models import OffreAbonnement, Abonnement, ServiceMarketplace, ContactInfo, MobileUser
+
+
+class MobileUserSerializer(serializers.ModelSerializer):
+    """
+    Serializer pour MobileUser (utilisateurs authentifiés via Firebase Phone Auth).
+    
+    Utilisé pour :
+        - Retourner les infos utilisateur après vérification du token Firebase
+        - Afficher les informations de profil utilisateur
+        
+    Champs exposés :
+        - id, phone_number, display_name : Identifiants et nom
+        - is_active : Statut du compte
+        - created_at, last_login : Dates importantes
+        
+    Champs protégés (jamais exposés via API) :
+        - firebase_uid : Interne seulement
+    """
+    class Meta:
+        model = MobileUser
+        fields = [
+            'id', 
+            'phone_number', 
+            'display_name', 
+            'is_active', 
+            'created_at', 
+            'last_login'
+        ]
+        read_only_fields = ['id', 'phone_number', 'created_at', 'last_login']
+
+
+class FirebaseTokenVerifySerializer(serializers.Serializer):
+    """
+    Serializer pour la requête de vérification de token Firebase.
+    
+    Input attendu :
+        {
+            "id_token": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9..."
+        }
+    """
+    id_token = serializers.CharField(
+        required=True,
+        help_text="Le token JWT Firebase ID obtenu après authentification téléphone"
+    )
+
+
+class FirebaseAuthResponseSerializer(serializers.Serializer):
+    """
+    Serializer pour la réponse après vérification Firebase.
+    
+    Output :
+        {
+            "success": true,
+            "message": "Authentification réussie",
+            "user": {
+                "id": 1,
+                "phone_number": "+237699999999",
+                "display_name": null,
+                "is_active": true,
+                "created_at": "2024-01-15T10:30:00Z",
+                "last_login": "2024-01-15T10:30:00Z"
+            },
+            "is_new_user": false
+        }
+    """
+    success = serializers.BooleanField()
+    message = serializers.CharField()
+    user = MobileUserSerializer(required=False)
+    is_new_user = serializers.BooleanField(required=False)

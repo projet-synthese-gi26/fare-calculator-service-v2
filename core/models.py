@@ -879,3 +879,86 @@ class ContactInfo(models.Model):
             self.email, self.whatsapp, self.telephone, 
             self.adresse, self.facebook_url, self.twitter_url, self.instagram_url
         ])
+
+
+class MobileUser(models.Model):
+    """
+    Représente un utilisateur mobile authentifié via Firebase Phone Auth.
+    
+    Ce modèle permet de stocker les utilisateurs qui s'authentifient via leur
+    numéro de téléphone (style Yango/Uber). L'authentification reste optionnelle
+    et n'affecte pas le fonctionnement principal de l'API.
+    
+    IMPORTANT : Ce système coexiste avec les autres mécanismes d'auth :
+        - ApiKey : Pour les partenaires/développeurs externes (inchangé)
+        - Django Admin : Username/password pour l'admin (inchangé)
+        - MobileUser : Pour les utilisateurs de l'app mobile (NOUVEAU)
+    
+    Workflow :
+        1. User s'authentifie via Firebase Phone Auth sur le frontend
+        2. Frontend reçoit un ID Token Firebase
+        3. Frontend envoie ce token au backend via POST /api/auth/verify-token/
+        4. Backend vérifie le token avec Firebase Admin SDK
+        5. Backend crée/récupère MobileUser et retourne les infos user
+        
+    Champs :
+        firebase_uid (str) : UID unique Firebase (ex. "AbCdEf123456...")
+        phone_number (str) : Numéro de téléphone (ex. "+237699999999")
+        display_name (str, optionnel) : Nom d'affichage (si fourni)
+        is_active (bool) : Si l'utilisateur peut utiliser le service
+        created_at (datetime) : Date de première connexion
+        last_login (datetime) : Date de dernière connexion
+        
+    Note sur la confidentialité :
+        Les numéros de téléphone sont des données sensibles. Ce système est conçu
+        pour créer une base d'utilisateurs pour de futures fonctionnalités, sans
+        lier les trajets aux utilisateurs pour le moment (anonymat préservé).
+    """
+    firebase_uid = models.CharField(
+        max_length=128,
+        unique=True,
+        verbose_name="Firebase UID",
+        help_text="Identifiant unique Firebase de l'utilisateur",
+        db_index=True
+    )
+    phone_number = models.CharField(
+        max_length=20,
+        unique=True,
+        verbose_name="Numéro de téléphone",
+        help_text="Numéro de téléphone au format international (ex. +237699999999)",
+        db_index=True
+    )
+    display_name = models.CharField(
+        max_length=100,
+        null=True,
+        blank=True,
+        verbose_name="Nom d'affichage",
+        help_text="Nom d'affichage optionnel de l'utilisateur"
+    )
+    is_active = models.BooleanField(
+        default=True,
+        verbose_name="Actif",
+        help_text="Décocher pour désactiver cet utilisateur"
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name="Date de création"
+    )
+    last_login = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="Dernière connexion"
+    )
+    
+    class Meta:
+        verbose_name = "Utilisateur Mobile"
+        verbose_name_plural = "Utilisateurs Mobiles"
+        ordering = ['-created_at']
+    
+    def __str__(self):
+        return f"{self.phone_number} ({self.display_name or 'Sans nom'})"
+    
+    def update_last_login(self):
+        """Met à jour la date de dernière connexion."""
+        self.last_login = timezone.now()
+        self.save(update_fields=['last_login'])
