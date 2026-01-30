@@ -12,6 +12,7 @@ Routes exposées :
     - GET /api/abonnements/verifier/{id}/ : Vérifier abonnement d'une pub
     - GET /api/services-marketplace/ : Liste des services externes (Hayden Go, etc.)
     - GET /api/contact-info/ : Informations de contact du footer
+    - GET /api/tarifs-standards/ : Tarifs officiels des taxis (Ministère des Transports)
     - GET /api/stats/ : Statistiques globales
     - GET /api/health/ : Health check (monitoring)
     
@@ -21,7 +22,7 @@ Routes exposées :
     - PATCH /api/auth/me/ : Mettre à jour profil utilisateur
 
 Authentification :
-    - Toutes routes /api/* (sauf /health/ et /auth/*) nécessitent ApiKey header
+    - Toutes routes /api/* (sauf /health/, /tarifs-standards/ et /auth/*) nécessitent ApiKey header
     - Routes /api/auth/* utilisent Bearer token Firebase (pas ApiKey)
     - Gérée par middleware core.middleware.ApiKeyMiddleware
 """
@@ -39,7 +40,8 @@ from .views import (
     OffreAbonnementViewSet,
     AbonnementViewSet,
     ServiceMarketplaceViewSet,
-    ContactInfoViewSet
+    ContactInfoViewSet,
+    TarifStandardView
 )
 from .auth_views import (
     FirebaseVerifyTokenView,
@@ -78,6 +80,9 @@ urlpatterns = [
 
     # Health check (pas d'auth requise)
     path('health/', HealthCheckView.as_view(), name='health'),
+    
+    # Tarifs standards (pas d'auth requise - données publiques)
+    path('tarifs-standards/', TarifStandardView.as_view(), name='tarifs-standards'),
     
     # ========================================
     # Routes Authentification Mobile (Firebase)

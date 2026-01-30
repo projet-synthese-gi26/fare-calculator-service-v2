@@ -5,7 +5,7 @@ from django.utils.safestring import mark_safe
 from django.utils import timezone
 from .models import (
     Point, Trajet, ApiKey, Publicite,
-    OffreAbonnement, Abonnement, ServiceMarketplace, ContactInfo, MobileUser
+    OffreAbonnement, Abonnement, ServiceMarketplace, ContactInfo, MobileUser, TarifStandard
 )
 
 
@@ -590,6 +590,89 @@ class MobileUserAdmin(admin.ModelAdmin):
     def reactiver_utilisateurs(self, request, queryset):
         count = queryset.update(is_active=True)
         self.message_user(request, f"{count} utilisateur(s) réactivé(s).")
+
+
+@admin.register(TarifStandard)
+class TarifStandardAdmin(admin.ModelAdmin):
+    """
+    Administration des tarifs standards des taxis au Cameroun.
+    
+    Ces tarifs sont fixés par le Ministère des Transports et doivent
+    être modifiés quand le ministère publie de nouveaux tarifs officiels.
+    
+    Ce modèle utilise un pattern Singleton : il n'existe qu'une seule instance.
+    """
+    list_display = [
+        'tarifs_jour_display', 
+        'tarifs_nuit_display', 
+        'source', 
+        'derniere_modification'
+    ]
+    readonly_fields = ['derniere_modification']
+    
+    fieldsets = (
+        ('🚕 Tarifs Taxi Standard (Partagé)', {
+            'fields': ('tarif_taxi_jour', 'tarif_taxi_nuit'),
+            'description': 'Tarifs pour un trajet en taxi partagé avec d\'autres passagers.'
+        }),
+        ('🚖 Tarifs Course/Dépôt (Taxi Privatisé)', {
+            'fields': ('tarif_course_jour', 'tarif_course_nuit'),
+            'description': 'Tarifs pour une course privée (le taxi ne prend que vous).'
+        }),
+        ('📋 Informations', {
+            'fields': ('source', 'notes', 'derniere_modification'),
+            'description': 'Source officielle et notes sur ces tarifs.'
+        }),
+    )
+    
+    def tarifs_jour_display(self, obj):
+        """Affiche les tarifs de jour formatés."""
+        return format_html(
+            '<span style="color: #f59e0b;">☀️ Taxi: <strong>{} FCFA</strong> | '
+            'Course: <strong>{} FCFA</strong></span>',
+            obj.tarif_taxi_jour,
+            obj.tarif_course_jour
+        )
+    tarifs_jour_display.short_description = "Tarifs Jour (6h-18h)"
+    
+    def tarifs_nuit_display(self, obj):
+        """Affiche les tarifs de nuit formatés."""
+        return format_html(
+            '<span style="color: #6366f1;">🌙 Taxi: <strong>{} FCFA</strong> | '
+            'Course: <strong>{} FCFA</strong></span>',
+            obj.tarif_taxi_nuit,
+            obj.tarif_course_nuit
+        )
+    tarifs_nuit_display.short_description = "Tarifs Nuit (18h-6h)"
+    
+    def has_add_permission(self, request):
+        """
+        Empêche la création de plusieurs instances (pattern Singleton).
+        Si une instance existe déjà, on ne peut pas en ajouter.
+        """
+        if TarifStandard.objects.exists():
+            return False
+        return super().has_add_permission(request)
+    
+    def has_delete_permission(self, request, obj=None):
+        """
+        Empêche la suppression des tarifs standards.
+        Les tarifs doivent toujours exister pour l'application.
+        """
+        return False
+    
+    def save_model(self, request, obj, form, change):
+        """Override pour afficher un message de confirmation."""
+        super().save_model(request, obj, form, change)
+        from django.contrib import messages
+        if change:
+            messages.success(
+                request,
+                format_html(
+                    '✅ <strong>Tarifs standards mis à jour avec succès !</strong><br>'
+                    '📢 Les nouveaux tarifs seront immédiatement visibles par les utilisateurs.'
+                )
+            )
 
 
 # Personnalisation du site admin

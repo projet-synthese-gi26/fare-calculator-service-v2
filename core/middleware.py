@@ -54,6 +54,7 @@ class ApiKeyMiddleware:
     EXEMPT_PATHS = [
         r'^/admin/',       # Django Admin
         r'^/api/health/$', # Health check
+        r'^/api/tarifs-standards/$',  # Tarifs standards (données publiques)
         r'^/api/docs/',    # Documentation API (si implémentée)
         r'^/api/doc',      # Alias documentation (pour éviter erreurs typo)
         r'^/api/schema/',  # Schema OpenAPI

@@ -25,7 +25,7 @@ import logging
 
 from .models import (
     Point, Trajet, ApiKey, Publicite,
-    OffreAbonnement, Abonnement, ServiceMarketplace, ContactInfo
+    OffreAbonnement, Abonnement, ServiceMarketplace, ContactInfo, TarifStandard
 )
 from .utils import (
     mapbox_client,
@@ -893,3 +893,66 @@ class FirebaseAuthResponseSerializer(serializers.Serializer):
     message = serializers.CharField()
     user = MobileUserSerializer(required=False)
     is_new_user = serializers.BooleanField(required=False)
+
+
+class TarifStandardSerializer(serializers.ModelSerializer):
+    """
+    Serializer pour TarifStandard (tarifs officiels des taxis au Cameroun).
+    
+    Expose les tarifs standards fixés par le Ministère des Transports.
+    Ces tarifs sont utilisés pour informer les utilisateurs des prix officiels
+    à côté des estimations calculées par notre système.
+    
+    Endpoint public : GET /api/tarifs-standards/
+    
+    Output :
+        {
+            "tarif_taxi_jour": 300,
+            "tarif_taxi_nuit": 350,
+            "tarif_course_jour": 3500,
+            "tarif_course_nuit": 4000,
+            "source": "Ministère des Transports du Cameroun",
+            "derniere_modification": "2024-01-15T10:30:00Z"
+        }
+    """
+    class Meta:
+        model = TarifStandard
+        fields = [
+            'tarif_taxi_jour',
+            'tarif_taxi_nuit',
+            'tarif_course_jour',
+            'tarif_course_nuit',
+            'source',
+            'notes',
+            'derniere_modification'
+        ]
+        read_only_fields = ['derniere_modification']
+
+
+class TarifStandardContextSerializer(serializers.Serializer):
+    """
+    Serializer pour retourner les tarifs adaptés au contexte (heure du trajet).
+    
+    Utilisé quand le frontend demande les tarifs pour une tranche horaire spécifique.
+    
+    Input (query param) : ?heure=matin|apres-midi|soir|nuit
+    
+    Output :
+        {
+            "tarif_taxi": 300,
+            "tarif_course": 3500,
+            "periode": "jour",
+            "tous_tarifs": {
+                "tarif_taxi_jour": 300,
+                "tarif_taxi_nuit": 350,
+                "tarif_course_jour": 3500,
+                "tarif_course_nuit": 4000
+            },
+            "source": "Ministère des Transports du Cameroun"
+        }
+    """
+    tarif_taxi = serializers.IntegerField(help_text="Tarif taxi applicable selon l'heure")
+    tarif_course = serializers.IntegerField(help_text="Tarif course applicable selon l'heure")
+    periode = serializers.CharField(help_text="Période (jour ou nuit)")
+    tous_tarifs = serializers.DictField(help_text="Tous les tarifs pour référence")
+    source = serializers.CharField(help_text="Source officielle des tarifs")

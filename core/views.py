@@ -38,7 +38,7 @@ from typing import Dict, List, Optional, Tuple
 
 from .models import (
     Point, Trajet, ApiKey, Publicite,
-    OffreAbonnement, Abonnement, ServiceMarketplace, ContactInfo
+    OffreAbonnement, Abonnement, ServiceMarketplace, ContactInfo, TarifStandard
 )
 from .serializers import (
     PointSerializer,
@@ -51,7 +51,9 @@ from .serializers import (
     OffreAbonnementSerializer,
     AbonnementSerializer,
     ServiceMarketplaceSerializer,
-    ContactInfoSerializer
+    ContactInfoSerializer,
+    TarifStandardSerializer,
+    TarifStandardContextSerializer
 )
 from .utils import (
     mapbox_client,
@@ -2038,5 +2040,118 @@ class StatsView(APIView):
         }
         
         return Response(data)
+
+
+class TarifStandardView(APIView):
+    """
+    Vue pour obtenir les tarifs standards des taxis au Cameroun.
+    
+    Ces tarifs sont fixés par le Ministère des Transports et peuvent être modifiés
+    via l'interface d'administration Django.
+    
+    Endpoints :
+        GET /api/tarifs-standards/ : Obtenir tous les tarifs
+        GET /api/tarifs-standards/?heure=matin : Obtenir les tarifs adaptés à la tranche horaire
+    
+    Paramètres query optionnels :
+        - heure (str) : Tranche horaire ('matin', 'apres-midi', 'soir', 'nuit')
+                        Si fourni, retourne les tarifs adaptés (jour ou nuit)
+    
+    Cette route est publique (pas d'API Key requise) pour permettre
+    l'affichage des tarifs même sans authentification.
+    
+    Exemples de réponse :
+    
+    Sans paramètre heure :
+        {
+            "tarif_taxi_jour": 300,
+            "tarif_taxi_nuit": 350,
+            "tarif_course_jour": 3500,
+            "tarif_course_nuit": 4000,
+            "source": "Ministère des Transports du Cameroun",
+            "notes": null,
+            "derniere_modification": "2024-01-15T10:30:00Z"
+        }
+    
+    Avec paramètre heure=nuit :
+        {
+            "tarif_taxi": 350,
+            "tarif_course": 4000,
+            "periode": "nuit",
+            "tous_tarifs": {
+                "tarif_taxi_jour": 300,
+                "tarif_taxi_nuit": 350,
+                "tarif_course_jour": 3500,
+                "tarif_course_nuit": 4000
+            },
+            "source": "Ministère des Transports du Cameroun"
+        }
+    """
+    
+    @extend_schema(
+        summary="Obtenir les tarifs standards des taxis",
+        description="""
+        Retourne les tarifs officiels fixés par le Ministère des Transports du Cameroun.
+        
+        Sans paramètre, retourne tous les tarifs.
+        Avec le paramètre `heure`, retourne les tarifs adaptés (jour ou nuit).
+        
+        Tranches horaires :
+        - matin, apres-midi → tarifs de JOUR
+        - soir, nuit → tarifs de NUIT
+        """,
+        parameters=[
+            OpenApiParameter(
+                name='heure',
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description="Tranche horaire : matin, apres-midi, soir, nuit",
+                required=False
+            )
+        ],
+        responses={
+            200: TarifStandardSerializer,
+            500: dict
+        }
+    )
+    def get(self, request):
+        try:
+            heure = request.query_params.get('heure', None)
+            instance = TarifStandard.get_instance()
+            
+            if heure:
+                # Retourner les tarifs adaptés à la tranche horaire
+                tarifs_context = TarifStandard.get_tarifs_for_heure(heure)
+                
+                response_data = {
+                    'tarif_taxi': tarifs_context['tarif_taxi'],
+                    'tarif_course': tarifs_context['tarif_course'],
+                    'periode': tarifs_context['periode'],
+                    'tous_tarifs': {
+                        'tarif_taxi_jour': instance.tarif_taxi_jour,
+                        'tarif_taxi_nuit': instance.tarif_taxi_nuit,
+                        'tarif_course_jour': instance.tarif_course_jour,
+                        'tarif_course_nuit': instance.tarif_course_nuit
+                    },
+                    'source': instance.source
+                }
+                
+                logger.info(f"[TARIFS] Tarifs contextuels retournés pour heure={heure} (période={tarifs_context['periode']})")
+                return Response(response_data)
+            else:
+                # Retourner tous les tarifs
+                serializer = TarifStandardSerializer(instance)
+                logger.info("[TARIFS] Tous les tarifs standards retournés")
+                return Response(serializer.data)
+                
+        except Exception as e:
+            logger.error(f"[TARIFS] Erreur lors de la récupération des tarifs: {e}")
+            return Response(
+                {
+                    "error": "Erreur lors de la récupération des tarifs standards",
+                    "detail": str(e)
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 

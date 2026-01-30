@@ -985,3 +985,117 @@ class MobileUser(models.Model):
     def primary_identifier(self):
         """Retourne l'identifiant principal (téléphone, email ou UID)."""
         return self.phone_number or self.email or self.firebase_uid
+
+
+class TarifStandard(models.Model):
+    """
+    Modèle Singleton pour stocker les tarifs standards de taxi au Cameroun.
+    
+    Ces tarifs sont fixés par le Ministère des Transports et peuvent être modifiés
+    par l'administrateur via l'interface d'administration Django.
+    
+    Tarifs actuels (à la date de création) :
+        - Tarif standard jour : 300 FCFA
+        - Tarif standard nuit : 350 FCFA
+        - Tarif course/dépôt jour : 3 500 FCFA
+        - Tarif course/dépôt nuit : 4 000 FCFA
+    
+    Le pattern Singleton garantit qu'il n'existe qu'une seule instance de ce modèle.
+    L'API expose ces tarifs via GET /api/tarifs-standards/ (sans authentification requise).
+    """
+    
+    # Tarifs standard (taxi partagé)
+    tarif_taxi_jour = models.PositiveIntegerField(
+        default=300,
+        verbose_name="Tarif taxi jour (FCFA)",
+        help_text="Tarif standard pour un trajet en taxi partagé de jour (6h-18h)"
+    )
+    tarif_taxi_nuit = models.PositiveIntegerField(
+        default=350,
+        verbose_name="Tarif taxi nuit (FCFA)",
+        help_text="Tarif standard pour un trajet en taxi partagé de nuit (18h-6h)"
+    )
+    
+    # Tarifs course/dépôt (taxi privatisé)
+    tarif_course_jour = models.PositiveIntegerField(
+        default=3500,
+        verbose_name="Tarif course jour (FCFA)",
+        help_text="Tarif pour une course/dépôt de jour (taxi privatisé, 6h-18h)"
+    )
+    tarif_course_nuit = models.PositiveIntegerField(
+        default=4000,
+        verbose_name="Tarif course nuit (FCFA)",
+        help_text="Tarif pour une course/dépôt de nuit (taxi privatisé, 18h-6h)"
+    )
+    
+    # Métadonnées
+    derniere_modification = models.DateTimeField(
+        auto_now=True,
+        verbose_name="Dernière modification"
+    )
+    source = models.CharField(
+        max_length=255,
+        default="Ministère des Transports du Cameroun",
+        verbose_name="Source officielle",
+        help_text="Source officielle de ces tarifs (ex: Ministère des Transports)"
+    )
+    notes = models.TextField(
+        blank=True,
+        null=True,
+        verbose_name="Notes",
+        help_text="Notes ou commentaires sur les tarifs (ex: date d'entrée en vigueur)"
+    )
+    
+    class Meta:
+        verbose_name = "Tarif Standard"
+        verbose_name_plural = "Tarifs Standards"
+    
+    def __str__(self):
+        return f"Tarifs Standards (Jour: {self.tarif_taxi_jour} / Nuit: {self.tarif_taxi_nuit} FCFA)"
+    
+    def save(self, *args, **kwargs):
+        """
+        Override save pour garantir le pattern Singleton.
+        S'il existe déjà une instance, on met à jour celle-ci au lieu d'en créer une nouvelle.
+        """
+        if not self.pk and TarifStandard.objects.exists():
+            # Une instance existe déjà, on met à jour celle-ci
+            existing = TarifStandard.objects.first()
+            self.pk = existing.pk
+        super().save(*args, **kwargs)
+    
+    @classmethod
+    def get_instance(cls):
+        """
+        Retourne l'instance unique des tarifs standards.
+        Crée une instance avec les valeurs par défaut si elle n'existe pas.
+        """
+        instance, created = cls.objects.get_or_create(pk=1)
+        return instance
+    
+    @classmethod
+    def get_tarifs_for_heure(cls, heure):
+        """
+        Retourne les tarifs appropriés selon la tranche horaire.
+        
+        Args:
+            heure (str): Tranche horaire ('matin', 'apres-midi', 'soir', 'nuit')
+            
+        Returns:
+            dict: {'tarif_taxi': int, 'tarif_course': int, 'periode': str}
+        """
+        instance = cls.get_instance()
+        
+        # 'nuit' et 'soir' utilisent les tarifs de nuit
+        if heure in ['nuit', 'soir']:
+            return {
+                'tarif_taxi': instance.tarif_taxi_nuit,
+                'tarif_course': instance.tarif_course_nuit,
+                'periode': 'nuit'
+            }
+        else:  # 'matin' et 'apres-midi' utilisent les tarifs de jour
+            return {
+                'tarif_taxi': instance.tarif_taxi_jour,
+                'tarif_course': instance.tarif_course_jour,
+                'periode': 'jour'
+            }
