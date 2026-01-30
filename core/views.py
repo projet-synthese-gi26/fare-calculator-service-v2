@@ -38,7 +38,8 @@ from typing import Dict, List, Optional, Tuple
 
 from .models import (
     Point, Trajet, ApiKey, Publicite,
-    OffreAbonnement, Abonnement, ServiceMarketplace, ContactInfo, TarifStandard
+    OffreAbonnement, Abonnement, ServiceMarketplace, ContactInfo, TarifStandard,
+    EstimationConfig
 )
 from .serializers import (
     PointSerializer,
@@ -734,6 +735,93 @@ class EstimateView(APIView):
             else:
                 type_zone = 0  # Urbaine par défaut pour Yaoundé
             logger.info(f"[FALLBACK] Type zone deduit : {type_zone}")
+        
+        # ============================================================
+        # ÉTAPE 3.5 : VÉRIFICATION DISTANCE DÉRAISONNABLE
+        # ============================================================
+        # 
+        # Si la distance dépasse le seuil configuré (trajets inter-villes),
+        # on bascule vers une régression linéaire simple au lieu du ML.
+        # Cela évite les prédictions absurdes (200km -> 1500 FCFA).
+        #
+        
+        config = EstimationConfig.get_config()
+        distance_km = (distance_metres or 0) / 1000.0
+        
+        if distance_km > config['distance_seuil_km']:
+            logger.warning(
+                f"[DISTANCE DÉRAISONNABLE] {distance_km:.2f} km > seuil {config['distance_seuil_km']} km. "
+                "Basculement vers régression linéaire."
+            )
+            
+            # Calculer le prix via régression linéaire
+            prix_lineaire = EstimationConfig.calculer_prix_lineaire(distance_metres)
+            
+            # Construire les détails du trajet
+            details_trajet = {
+                'depart': {
+                    'label': depart_metadata['label'],
+                    'coords': depart_coords,
+                    'quartier': depart_metadata.get('quartier'),
+                    'ville': depart_metadata.get('ville')
+                },
+                'arrivee': {
+                    'label': arrivee_metadata['label'],
+                    'coords': arrivee_coords,
+                    'quartier': arrivee_metadata.get('quartier'),
+                    'ville': arrivee_metadata.get('ville')
+                },
+                'distance_metres': distance_metres,
+                'duree_secondes': duree_secondes,
+                'heure': heure,
+                'meteo': meteo,
+                'meteo_label': {0: 'Soleil', 1: 'Pluie legere', 2: 'Pluie forte', 3: 'Orage'}.get(meteo, 'Inconnu'),
+                'type_zone': type_zone,
+                'type_zone_label': {0: 'Urbaine', 1: 'Mixte', 2: 'Rurale'}.get(type_zone, 'Inconnue'),
+                'congestion_mapbox': congestion_mapbox,
+                'sinuosite_indice': sinuosite_indice,
+                'nb_virages_estimes': nb_virages_calc,
+                'route_classe': route_classe
+            }
+            
+            # Réponse spéciale pour trajets longue distance
+            prediction_data = {
+                'statut': 'longue_distance',
+                'prix_moyen': prix_lineaire,
+                'prix_min': int(prix_lineaire * 0.9),  # -10%
+                'prix_max': int(prix_lineaire * 1.1),  # +10%
+                'distance': distance_metres,
+                'duree': duree_secondes,
+                'fiabilite': 0.7,  # Fiabilité moyenne (formule simple mais fiable)
+                'message': (
+                    f"Trajet longue distance ({distance_km:.1f} km). "
+                    f"Prix calculé au tarif de {config['prix_par_km']} FCFA/km. "
+                    "Ce tarif est indicatif pour les trajets inter-quartiers éloignés ou inter-villes."
+                ),
+                'details_trajet': details_trajet,
+                'ajustements_appliques': {
+                    'methode': 'regression_lineaire',
+                    'prix_par_km': config['prix_par_km'],
+                    'distance_km': round(distance_km, 2),
+                    'note': f"Distance > seuil ({config['distance_seuil_km']} km). Tarif linéaire appliqué."
+                },
+                'suggestions': [
+                    f"Distance : {distance_km:.2f} km",
+                    f"Tarif appliqué : {config['prix_par_km']} FCFA/km",
+                    f"Durée estimée : {(duree_secondes or 0)/60:.0f} minutes",
+                    "Pour les trajets longue distance, négociez le prix avec le chauffeur.",
+                    "Ce prix est indicatif et peut varier selon les conditions."
+                ]
+            }
+            
+            logger.info(
+                f"[RESPONSE LINEAIRE] Distance={distance_km:.2f}km, "
+                f"Prix={prix_lineaire} FCFA (@ {config['prix_par_km']} FCFA/km)"
+            )
+            
+            serializer = PredictionOutputSerializer(data=prediction_data)
+            serializer.is_valid(raise_exception=True)
+            return Response(serializer.data, status=status.HTTP_200_OK)
         
         # ============================================================
         # ÉTAPE 4 : RECHERCHE TRAJETS SIMILAIRES (HIÉRARCHIE 2D)

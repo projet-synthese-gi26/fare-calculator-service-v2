@@ -5,7 +5,8 @@ from django.utils.safestring import mark_safe
 from django.utils import timezone
 from .models import (
     Point, Trajet, ApiKey, Publicite,
-    OffreAbonnement, Abonnement, ServiceMarketplace, ContactInfo, MobileUser, TarifStandard
+    OffreAbonnement, Abonnement, ServiceMarketplace, ContactInfo, MobileUser, TarifStandard,
+    EstimationConfig
 )
 
 
@@ -675,7 +676,106 @@ class TarifStandardAdmin(admin.ModelAdmin):
             )
 
 
+@admin.register(EstimationConfig)
+class EstimationConfigAdmin(admin.ModelAdmin):
+    """
+    Administration de la configuration d'estimation des prix.
+    
+    Ce modèle contrôle le comportement pour les trajets avec distances
+    déraisonnables (inter-villes). Au-delà du seuil configuré, l'estimation
+    utilise une régression linéaire simple au lieu du ML.
+    
+    Pattern Singleton : une seule instance existe.
+    """
+    list_display = [
+        'distance_seuil_display',
+        'prix_par_km_display',
+        'prix_minimum_display',
+        'derniere_modification'
+    ]
+    readonly_fields = ['derniere_modification']
+    
+    fieldsets = (
+        ('📏 Seuil de Distance', {
+            'fields': ('distance_seuil_km',),
+            'description': (
+                'Distance au-delà de laquelle on considère le trajet comme "déraisonnable" '
+                '(inter-villes). Le ML sera remplacé par une régression linéaire.\n\n'
+                'Valeur recommandée : 15-20 km (largeur d\'une grande ville camerounaise comme Douala ou Yaoundé).'
+            )
+        }),
+        ('💰 Tarification Linéaire', {
+            'fields': ('prix_par_km', 'prix_minimum_lineaire'),
+            'description': (
+                'Paramètres pour le calcul du prix des trajets dépassant le seuil.\n'
+                'Formule : prix = distance_km × prix_par_km (avec minimum garanti).'
+            )
+        }),
+        ('📋 Informations', {
+            'fields': ('notes', 'derniere_modification'),
+        }),
+    )
+    
+    def distance_seuil_display(self, obj):
+        """Affiche le seuil de distance formaté."""
+        return format_html(
+            '<span style="color: #3b82f6;">📏 <strong>{} km</strong></span>',
+            obj.distance_seuil_km
+        )
+    distance_seuil_display.short_description = "Seuil Distance"
+    
+    def prix_par_km_display(self, obj):
+        """Affiche le prix par km formaté."""
+        return format_html(
+            '<span style="color: #10b981;">💵 <strong>{} FCFA/km</strong></span>',
+            obj.prix_par_km
+        )
+    prix_par_km_display.short_description = "Prix/km"
+    
+    def prix_minimum_display(self, obj):
+        """Affiche le prix minimum formaté."""
+        return format_html(
+            '<span style="color: #f59e0b;">⬇️ Min: <strong>{} FCFA</strong></span>',
+            obj.prix_minimum_lineaire
+        )
+    prix_minimum_display.short_description = "Prix Minimum"
+    
+    def has_add_permission(self, request):
+        """
+        Empêche la création de plusieurs instances (pattern Singleton).
+        """
+        if EstimationConfig.objects.exists():
+            return False
+        return super().has_add_permission(request)
+    
+    def has_delete_permission(self, request, obj=None):
+        """
+        Empêche la suppression de la configuration.
+        """
+        return False
+    
+    def save_model(self, request, obj, form, change):
+        """Override pour afficher un message de confirmation."""
+        super().save_model(request, obj, form, change)
+        from django.contrib import messages
+        if change:
+            # Calculer un exemple pour illustration
+            exemple_distance = 30  # km
+            exemple_prix = EstimationConfig.calculer_prix_lineaire(exemple_distance * 1000)
+            messages.success(
+                request,
+                format_html(
+                    '✅ <strong>Configuration estimation mise à jour !</strong><br>'
+                    '📊 Exemple : Un trajet de {} km coûtera maintenant <strong>{} FCFA</strong>.'
+                    '<br>📢 Ces paramètres sont immédiatement actifs.',
+                    exemple_distance,
+                    exemple_prix
+                )
+            )
+
+
 # Personnalisation du site admin
 admin.site.site_header = "Administration Taxi Estimator Cameroun"
 admin.site.site_title = "Taxi Estimator Admin"
 admin.site.index_title = "Gestion de l'API et des données"
+

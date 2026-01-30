@@ -1099,3 +1099,135 @@ class TarifStandard(models.Model):
                 'tarif_course': instance.tarif_course_jour,
                 'periode': 'jour'
             }
+
+
+class EstimationConfig(models.Model):
+    """
+    Modèle Singleton pour configurer les paramètres d'estimation des prix.
+    
+    Ce modèle gère le comportement de l'algorithme d'estimation pour les cas spéciaux,
+    notamment les trajets avec des distances déraisonnables (inter-villes).
+    
+    Problème résolu :
+        Le modèle ML de classification a une classe maximale de 2000 FCFA, ce qui peut
+        donner des résultats absurdes pour des trajets très longs (ex: 200km -> 1500 FCFA).
+        
+    Solution :
+        Si la distance dépasse un seuil configurable, on bascule vers une régression
+        linéaire simple : prix = distance_km * prix_par_km
+        
+    Valeurs par défaut :
+        - Seuil distance : 15 km (largeur typique d'une grande ville camerounaise + marge)
+        - Prix par km : 150 FCFA (estimation raisonnable pour trajets longue distance)
+    """
+    
+    # Seuil de distance pour basculer en régression linéaire
+    distance_seuil_km = models.FloatField(
+        default=15.0,
+        verbose_name="Distance seuil (km)",
+        help_text=(
+            "Au-delà de cette distance, l'estimation utilise une régression linéaire "
+            "au lieu du ML/proximité. Valeur recommandée : 15-20 km (largeur d'une grande ville)."
+        )
+    )
+    
+    # Prix par kilomètre pour la régression linéaire
+    prix_par_km = models.PositiveIntegerField(
+        default=150,
+        verbose_name="Prix par km (FCFA)",
+        help_text=(
+            "Prix en FCFA par kilomètre pour les trajets dépassant le seuil. "
+            "Utilisé dans la formule : prix = distance_km × prix_par_km"
+        )
+    )
+    
+    # Prix minimum pour les trajets linéaires (éviter les prix trop bas)
+    prix_minimum_lineaire = models.PositiveIntegerField(
+        default=500,
+        verbose_name="Prix minimum linéaire (FCFA)",
+        help_text="Prix minimum garanti pour les trajets calculés en régression linéaire."
+    )
+    
+    # Métadonnées
+    derniere_modification = models.DateTimeField(
+        auto_now=True,
+        verbose_name="Dernière modification"
+    )
+    notes = models.TextField(
+        blank=True,
+        null=True,
+        verbose_name="Notes",
+        help_text="Notes ou justifications des valeurs choisies."
+    )
+    
+    class Meta:
+        verbose_name = "Configuration Estimation"
+        verbose_name_plural = "Configuration Estimation"
+    
+    def __str__(self):
+        return f"Config Estimation (Seuil: {self.distance_seuil_km} km, Prix/km: {self.prix_par_km} FCFA)"
+    
+    def save(self, *args, **kwargs):
+        """
+        Override save pour garantir le pattern Singleton.
+        S'il existe déjà une instance, on met à jour celle-ci au lieu d'en créer une nouvelle.
+        """
+        if not self.pk and EstimationConfig.objects.exists():
+            existing = EstimationConfig.objects.first()
+            self.pk = existing.pk
+        super().save(*args, **kwargs)
+    
+    @classmethod
+    def get_instance(cls):
+        """
+        Retourne l'instance unique de configuration.
+        Crée une instance avec les valeurs par défaut si elle n'existe pas.
+        """
+        instance, created = cls.objects.get_or_create(pk=1)
+        return instance
+    
+    @classmethod
+    def get_config(cls):
+        """
+        Retourne les paramètres de configuration sous forme de dictionnaire.
+        Utilisé dans views.py pour récupérer les valeurs.
+        
+        Returns:
+            dict: {
+                'distance_seuil_km': float,
+                'prix_par_km': int,
+                'prix_minimum_lineaire': int
+            }
+        """
+        instance = cls.get_instance()
+        return {
+            'distance_seuil_km': instance.distance_seuil_km,
+            'prix_par_km': instance.prix_par_km,
+            'prix_minimum_lineaire': instance.prix_minimum_lineaire
+        }
+    
+    @classmethod
+    def calculer_prix_lineaire(cls, distance_metres: float) -> int:
+        """
+        Calcule le prix en utilisant la régression linéaire.
+        
+        Args:
+            distance_metres: Distance du trajet en mètres
+            
+        Returns:
+            int: Prix calculé en FCFA (arrondi à 50 FCFA près)
+        """
+        instance = cls.get_instance()
+        distance_km = distance_metres / 1000.0
+        
+        # Calcul linéaire
+        prix_brut = distance_km * instance.prix_par_km
+        
+        # Appliquer le minimum
+        prix = max(prix_brut, instance.prix_minimum_lineaire)
+        
+        # Arrondir à 50 FCFA près (plus lisible pour l'utilisateur)
+        prix_arrondi = round(prix / 50) * 50
+        
+        return int(max(prix_arrondi, instance.prix_minimum_lineaire))
+
