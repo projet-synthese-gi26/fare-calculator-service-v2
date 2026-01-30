@@ -632,8 +632,8 @@ class PredictionOutputSerializer(serializers.Serializer):
     """
     
     statut = serializers.ChoiceField(
-        choices=['exact', 'similaire', 'inconnu'],
-        help_text="Statut estimation : exact (match BD), similaire (ajusté), inconnu (fallbacks)."
+        choices=['exact', 'similaire', 'inconnu', 'longue_distance'],
+        help_text="Statut estimation : exact (match BD), similaire (ajusté), inconnu (fallbacks), longue_distance (régression linéaire)."
     )
     prix_moyen = serializers.FloatField(
         help_text="Prix moyen estimé en CFA."
