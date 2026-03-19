@@ -2817,3 +2817,4 @@ ML_MODEL_R2_SCORE=0.78  # À update après training
 **Dernière mise à jour** : 5 novembre 2025  
 **Version API** : 2.0.0  
 **Section ML** : Ajoutée le 5 novembre 2025
+test
