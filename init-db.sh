@@ -29,6 +29,10 @@ fi
 echo "=== Collecte des fichiers statiques ==="
 python manage.py collectstatic --noinput || true
 
+# Migration
+echo "==== Migration ======="
+python manage.py migrate --noinput || true
+
 # Vérifier si on doit initialiser les données de base (Points, Trajets)
 echo "=== Vérification des données existantes ==="
 POINT_COUNT=$(python -c "
