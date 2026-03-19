@@ -31,7 +31,7 @@ RUN useradd -m appuser
 USER root
 RUN apt-get update && apt-get install -y sed && rm -rf /var/lib/apt/lists/*
 RUN sed -i 's/\r$//' /app/init-db.sh
-RUN chmod +x /app/init-db.sh
+RUN chmod +x /app/init-db.sh /app/migrate.sh
 RUN mkdir -p /app/logs && chown -R appuser:appuser /app
 USER appuser
 
