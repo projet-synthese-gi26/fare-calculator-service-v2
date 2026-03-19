@@ -9,4 +9,4 @@ jobs:
     uses: projet-synthese-gi26/workflows/.github/workflows/django-ci-cd.yml@main
     with:
       app_name: fare-calculator-service
-    secrets: inherit          # passe TOUS les secrets automatiquement
+    secrets: inherit
