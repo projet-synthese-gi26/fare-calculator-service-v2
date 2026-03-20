@@ -30,10 +30,11 @@ SECRET_KEY = 'django-insecure-jd8m!=^lc83ov2q@l91kaj2b))lhv)$4mr@577e(yt*7-(q+**
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ["fare-calculator-service.pynfi.com", "localhost", "127.0.0.1", ".pynfi.com"]
+ALLOWED_HOSTS = ["fare-calculator-service.pynfi.com", "localhost", "127.0.0.1", ".pynfi.com", "traefikdev.yowyob.com"]
 
 # Configuration de sécurité pour le déploiement (Vercel + Pynfi)
 CSRF_TRUSTED_ORIGINS = [
+    "https://traefikdev.yowyob.com",
     "https://fare-calculator-service.pynfi.com",
     "https://fare-calculator-front.vercel.app"
 ]
@@ -227,7 +228,7 @@ CELERY_TIMEZONE = 'Africa/Douala'  # Pour Cameroun
 # ==============================================================================
 
 # Mapbox API Configuration
-MAPBOX_ACCESS_TOKEN = os.getenv('MAPBOX_TOKEN', 'pk.eyJ1IjoibTJnaSIsImEiOiJjbWhramlqcnIwYW5rMmlzY3ViZmg1NGFmIn0.q3XQxQTte7ADbn32fwFh-g')
+MAPBOX_ACCESS_TOKEN = os.getenv('MAPBOX_TOKEN')
 MAPBOX_BASE_URL = os.getenv('MAPBOX_BASE_URL', 'https://api.mapbox.com')
 MAPBOX_CACHE_ENABLED = os.getenv('MAPBOX_CACHE_ENABLED', 'True').lower() == 'true'
 MAPBOX_CACHE_TTL_SECONDS = int(os.getenv('MAPBOX_CACHE_TTL_SECONDS', '3600'))  # 1h pour données trafic dynamiques
@@ -329,6 +330,7 @@ CORS_ALLOWED_ORIGINS = [
     "http://127.0.0.1:5173",
     "https://fare-calculator-front.vercel.app",
     "https://fare-calculator-service.pynfi.com",
+    "https://traefikdev.yowyob.com"
 ]
 
 # Support des sous-domaines Vercel si besoin
