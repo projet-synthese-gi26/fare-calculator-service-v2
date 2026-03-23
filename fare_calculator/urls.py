@@ -18,6 +18,6 @@ urlpatterns = [
     # API REST (authentification ApiKey via middleware)
     path('api/', include('core.urls')),
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
-    path('api/docs/', SpectacularSwaggerView.as_view(url='/fare-calculator/fare-api/schema/'), name='swagger-ui'),
+    path('api/docs/', SpectacularSwaggerView.as_view(url='/fare-calculator/api/schema/'), name='swagger-ui'),
     path('api/redoc/', SpectacularRedocView.as_view(url_name='schema'), name='redoc'),
 ]
