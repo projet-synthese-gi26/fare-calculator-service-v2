@@ -13,7 +13,7 @@ from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView, Sp
 
 urlpatterns = [
     # Interface admin Django
-    path('/fare-calculator/admin/', admin.site.urls),
+    path('admin/', admin.site.urls),
     
     # API REST (authentification ApiKey via middleware)
     path('api/', include('core.urls')),
