@@ -39,7 +39,11 @@ CSRF_TRUSTED_ORIGINS = [
     "https://fare-calculator-front.vercel.app"
 ]
 
-# Détection du HTTPS derrière le reverse proxy (déploiement Docker/Pynfi)
+# Le préfixe de base path géré par Traefik
+FORCE_SCRIPT_NAME = '/fare-calculator'
+
+# Nécessaire pour que les redirects soient corrects
+USE_X_FORWARDED_HOST = True
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
 
