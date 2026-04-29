@@ -30,11 +30,12 @@ SECRET_KEY = 'django-insecure-jd8m!=^lc83ov2q@l91kaj2b))lhv)$4mr@577e(yt*7-(q+**
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ["fare-calculator-service.pynfi.com", "localhost", "127.0.0.1", ".pynfi.com", "traefikdev.yowyob.com"]
+ALLOWED_HOSTS = ["fare-calculator-service.pynfi.com", "localhost", "127.0.0.1", ".pynfi.com", "traefikdev.yowyob.com", "farcal-dev.yowyob.com"]
 
 # Configuration de sécurité pour le déploiement (Vercel + Pynfi)
 CSRF_TRUSTED_ORIGINS = [
     "https://traefikdev.yowyob.com",
+    "https://farcal-dev.yowyob.com",
     "https://fare-calculator-service.pynfi.com",
     "https://fare-calculator-front.vercel.app"
 ]
@@ -340,6 +341,7 @@ CORS_ALLOWED_ORIGINS = [
 # Support des sous-domaines Vercel si besoin
 CORS_ALLOWED_ORIGIN_REGEXES = [
     r"^https://.*\.vercel\.app$",
+    "https://farcal-dev.yowyob.com",
 ]
 
 CORS_ALLOW_CREDENTIALS = True
